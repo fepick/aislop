@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>AI Slop Wrestling Simulator</title>
+    <link rel="stylesheet" href="./style.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="title-row">
+        <div>
+          <p class="eyebrow">DETERMINISTIC AUTO BATTLE</p>
+          <h1>AI SLOP WRESTLING</h1>
+        </div>
+        <span class="version">RULES 0.1.0</span>
+      </header>
+
+      <section class="game-stage" aria-label="레슬링 관전 화면">
+        <canvas id="game-canvas" width="1920" height="1080"></canvas>
+        <div class="portrait-notice">가로 화면에서 플레이하세요</div>
+      </section>
+
+      <section class="control-panel">
+        <div class="seed-control">
+          <label for="seed-input">MATCH SEED</label>
+          <input id="seed-input" type="number" value="20260728" step="1">
+        </div>
+        <div class="button-row">
+          <button id="start-button" class="primary">관전 시작</button>
+          <button id="pause-button">일시정지</button>
+          <button id="resume-button">재개</button>
+          <button id="restart-button">재시작 (R)</button>
+        </div>
+      </section>
+
+      <section class="simulation-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">HEADLESS LAB</p>
+            <h2>결과 전용 시뮬레이션</h2>
+          </div>
+          <button id="download-button" disabled>JSON 다운로드</button>
+        </div>
+        <div class="button-row">
+          <button data-count="1">결과만 1회</button>
+          <button data-count="100">100회 실행</button>
+          <button data-count="1000">1,000회 실행</button>
+          <button id="cancel-button" class="danger" disabled>취소</button>
+        </div>
+        <div class="progress-track" aria-label="시뮬레이션 진행률">
+          <div id="progress-bar"></div>
+        </div>
+        <p id="progress-label" class="status-line">실행할 횟수를 선택하세요.</p>
+        <div id="result-summary" class="result-grid"></div>
+        <pre id="single-result" class="result-json" aria-live="polite"></pre>
+      </section>
+    </main>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
