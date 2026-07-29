@@ -32,13 +32,18 @@ asset/
 ├─ gameboard/
 │  └─ arena_480x270.png
 ├─ player_sprite/
-│  └─ red_comet_sheet.png
+│  ├─ red_comet_sheet.png
+│  └─ blue_bull_sheet.png
+├─ sound/
+│  ├─ attack-shout.wav
+│  └─ hit-impact.wav
 └─ play_sample/
    └─ sample_play.png
 ```
 
 - 경기장은 480×270이며 1920×1080 논리 화면에 정확히 4배 확대한다.
-- 선수 시트는 RGBA PNG이고 543×724 프레임 4개가 가로로 배치되어 있다.
+- 선수 시트는 RGBA PNG이고 543×724 프레임 4개가 가로로 배치되어 있다. P1은 빨간색, P2는 파란색 전용 시트를 사용한다.
+- 관전 시작 버튼을 누르면 공격·피격 사운드가 활성화된다. 브라우저 오디오 정책상 최초 사용자 입력 전에는 소리가 재생되지 않는다.
 - Canvas 이미지 보간과 CSS 이미지 보간을 비활성화한다.
 - `sample_play.png`는 HUD 분위기 참고 자료이며 런타임 화면에 사용하지 않는다.
 
@@ -48,14 +53,14 @@ asset/
 - 제한 시간: 3,600 tick
 - RNG: Mulberry32 기반 seed RNG
 - 매치별 seed: `mix32-v1` 파생 정책
-- 전투 규칙: `0.1.0`
-- AI 프로필: `0.1.0`
+- 전투 규칙: `0.2.0`
+- AI 프로필: `0.2.0`
 
 전투, AI, 치명타 판정에서는 `Math.random()`을 사용하지 않는다. 같은 seed와 설정의 관전/headless 결과는 `mode` 필드를 제외하고 동일하다.
 
 ## 결과 데이터
 
-단일 결과에는 seed, 실행 모드, 버전, 승자, 결과 유형, 경과 tick/초, 양측 stats와 최종 체력·분노, 피해량, 공격/명중/치명타 및 로프 드롭킥 카운터가 포함된다.
+단일 결과에는 seed, 실행 모드, 버전, 승자, 결과 유형, 경과 tick/초, 양측 stats와 최종 체력·분노, 피해량, 행동별 공격/명중/치명타, 로프 드롭킥 및 카운터 지표가 포함된다.
 
 배치 결과에는 실행 metadata, 집계 지표와 compact match summary가 포함된다. tick별 이벤트는 대량 결과에 저장하지 않는다.
 

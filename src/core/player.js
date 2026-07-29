@@ -1,5 +1,12 @@
 import { DEFAULT_STATS, WORLD } from "../config/game-config.js";
 
+const actionCounters = () => ({
+  KICK: 0,
+  PUSH: 0,
+  DROP_KICK: 0,
+  ROPE_DROP_KICK: 0
+});
+
 const emptyMetrics = () => ({
   totalDamageDealt: 0,
   totalDamageTaken: 0,
@@ -7,7 +14,12 @@ const emptyMetrics = () => ({
   attacksHit: 0,
   criticalHits: 0,
   ropeDropkickAttempts: 0,
-  ropeDropkickHits: 0
+  ropeDropkickHits: 0,
+  countersAttempted: 0,
+  countersSucceeded: 0,
+  counterDamageDealt: 0,
+  actionAttempts: actionCounters(),
+  actionHits: actionCounters()
 });
 
 export function createPlayer(config, stats = DEFAULT_STATS) {
@@ -27,6 +39,7 @@ export function createPlayer(config, stats = DEFAULT_STATS) {
     velocityX: 0,
     action: null,
     hitStunTicks: 0,
+    counterPoseTicks: 0,
     decisionTicks: 1,
     cooldowns: { KICK: 0, PUSH: 0, DROP_KICK: 0, ROPE_DROP_KICK: 0 },
     metrics: emptyMetrics()

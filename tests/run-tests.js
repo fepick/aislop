@@ -1,8 +1,16 @@
 import { ACTIONS } from "../src/config/combat-config.js";
+import { AI_PROFILES } from "../src/config/ai-profiles.js";
 import { TIME_LIMIT_TICKS, WORLD } from "../src/config/game-config.js";
-import { normalDamage, criticalChance } from "../src/core/combat-rules.js";
+import {
+  applyHits,
+  counterChance,
+  criticalChance,
+  normalDamage
+} from "../src/core/combat-rules.js";
 import { Game } from "../src/core/game.js";
 import { SeededRng, mixSeed } from "../src/core/rng.js";
+import { hitGain } from "../src/presentation/audio-manager.js";
+import { shakeForDamage } from "../src/presentation/feedback.js";
 import { aggregateResults } from "../src/simulation/results-aggregator.js";
 import { runMatch } from "../src/simulation/simulation-runner.js";
 
@@ -42,6 +50,71 @@ test("default damage and critical chance match rules", () => {
   const game = new Game({ seed: 1 });
   assert.equal(normalDamage(7, game.players[0], game.players[1]), 9);
   assert.ok(Math.abs(criticalChance(game.players[0]) - 0.18) < 1e-12);
+});
+
+test("default AI disables only the normal dropkick", () => {
+  assert.equal(AI_PROFILES.normal.actionWeights.DROP_KICK, 0);
+  assert.ok(AI_PROFILES.normal.actionWeights.PUSH > 0);
+  assert.ok(AI_PROFILES.normal.ropeDropkickChance > 0);
+  let pushAttempts = 0;
+  let ropeDropkickAttempts = 0;
+  for (let seed = 0; seed < 100; seed += 1) {
+    const result = runMatch({ seed });
+    assert.equal(result.p1.actionAttempts.DROP_KICK, 0);
+    assert.equal(result.p2.actionAttempts.DROP_KICK, 0);
+    pushAttempts += result.p1.actionAttempts.PUSH + result.p2.actionAttempts.PUSH;
+    ropeDropkickAttempts +=
+      result.p1.actionAttempts.ROPE_DROP_KICK + result.p2.actionAttempts.ROPE_DROP_KICK;
+  }
+  assert.ok(pushAttempts > 0);
+  assert.ok(ropeDropkickAttempts > 0);
+});
+
+test("counter chance scales with insight and clamps", () => {
+  const game = new Game({ seed: 1 });
+  const defender = game.players[1];
+  defender.stats.insight = 0;
+  assert.equal(counterChance(defender), 0.05);
+  defender.stats.insight = 10;
+  assert.ok(Math.abs(counterChance(defender) - 0.15) < 1e-12);
+  defender.stats.insight = 100;
+  assert.equal(counterChance(defender), 0.45);
+});
+
+test("a successful counter ignores the original hit and retaliates once", () => {
+  const game = new Game({ seed: 1 });
+  const [attacker, defender] = game.players;
+  const attackerHealth = attacker.health;
+  const defenderHealth = defender.health;
+  const events = [];
+  applyHits([{
+    attacker,
+    defender,
+    actionType: "KICK",
+    damage: 20,
+    critical: false,
+    knockback: ACTIONS.KICK.knockback
+  }], (...args) => events.push(args), {
+    P1: { next: () => 1 },
+    P2: { next: () => 0 }
+  });
+  assert.equal(defender.health, defenderHealth);
+  assert.ok(attacker.health < attackerHealth);
+  assert.equal(defender.metrics.countersAttempted, 1);
+  assert.equal(defender.metrics.countersSucceeded, 1);
+  assert.equal(attacker.metrics.attacksHit, 0);
+  assert.equal(events.length, 1);
+  assert.equal(events[0][0], "COUNTER");
+});
+
+test("damage feedback uses bounded tiers", () => {
+  assert.deepEqual(shakeForDamage(9), { strength: 0, frames: 0 });
+  assert.deepEqual(shakeForDamage(10), { strength: 6, frames: 6 });
+  assert.deepEqual(shakeForDamage(20), { strength: 12, frames: 9 });
+  assert.deepEqual(shakeForDamage(30), { strength: 20, frames: 12 });
+  assert.equal(hitGain(0), 0.25);
+  assert.ok(hitGain(20) > hitGain(10));
+  assert.equal(hitGain(100), 1);
 });
 
 test("same seed produces the same deterministic result", () => {

@@ -10,6 +10,20 @@ export function aggregateResults(results) {
   const durations = results.map(result => result.elapsedSeconds).sort((a, b) => a - b);
   const total = results.length;
   const sum = (side, field) => results.reduce((value, result) => value + result[side][field], 0);
+  const sumAction = (side, field, action) =>
+    results.reduce((value, result) => value + result[side][field][action], 0);
+  const actions = ["KICK", "PUSH", "DROP_KICK", "ROPE_DROP_KICK"];
+  const actionMetrics = side => Object.fromEntries(actions.map(action => [
+    action,
+    {
+      attempts: sumAction(side, "actionAttempts", action),
+      hits: sumAction(side, "actionHits", action),
+      hitRate: ratio(
+        sumAction(side, "actionHits", action),
+        sumAction(side, "actionAttempts", action)
+      )
+    }
+  ]));
   return {
     totalMatches: total,
     p1Wins,
@@ -30,7 +44,15 @@ export function aggregateResults(results) {
     averageCriticalHitsByP2: ratio(sum("p2", "criticalHits"), total),
     averageRopeDropkickHitsByP1: ratio(sum("p1", "ropeDropkickHits"), total),
     averageRopeDropkickHitsByP2: ratio(sum("p2", "ropeDropkickHits"), total),
+    averageCountersByP1: ratio(sum("p1", "countersSucceeded"), total),
+    averageCountersByP2: ratio(sum("p2", "countersSucceeded"), total),
+    p1CounterSuccessRate: ratio(sum("p1", "countersSucceeded"), sum("p1", "countersAttempted")),
+    p2CounterSuccessRate: ratio(sum("p2", "countersSucceeded"), sum("p2", "countersAttempted")),
     p1AttackHitRate: ratio(sum("p1", "attacksHit"), sum("p1", "attacksAttempted")),
-    p2AttackHitRate: ratio(sum("p2", "attacksHit"), sum("p2", "attacksAttempted"))
+    p2AttackHitRate: ratio(sum("p2", "attacksHit"), sum("p2", "attacksAttempted")),
+    actionMetrics: {
+      p1: actionMetrics("p1"),
+      p2: actionMetrics("p2")
+    }
   };
 }

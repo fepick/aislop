@@ -42,6 +42,10 @@ export class Game {
       P1: new SeededRng(mixSeed(this.seed, 303)),
       P2: new SeededRng(mixSeed(this.seed, 404))
     };
+    this.counterRng = {
+      P1: new SeededRng(mixSeed(this.seed, 505)),
+      P2: new SeededRng(mixSeed(this.seed, 606))
+    };
     this.players = [
       createPlayer(PLAYER_CONFIGS[0], p1Stats),
       createPlayer(PLAYER_CONFIGS[1], p2Stats)
@@ -72,6 +76,7 @@ export class Game {
     }
     player.action = { type, elapsed: 0, hasHit: false };
     player.metrics.attacksAttempted += 1;
+    player.metrics.actionAttempts[type] += 1;
     if (type === "ROPE_DROP_KICK") {
       player.metrics.ropeDropkickAttempts += 1;
       player.rage = 0;
@@ -81,6 +86,7 @@ export class Game {
 
   updatePlayer(player, opponentX) {
     player.previousX = player.x;
+    player.counterPoseTicks = Math.max(0, player.counterPoseTicks - 1);
     for (const key of cooldownKeys) player.cooldowns[key] = Math.max(0, player.cooldowns[key] - 1);
 
     if (player.hitStunTicks > 0) {
@@ -156,7 +162,7 @@ export class Game {
         hits.push(buildHit(attacker, defender, action.type, this.combatRng[attacker.id]));
       }
     }
-    applyHits(hits, (...args) => this.emit(...args));
+    applyHits(hits, (...args) => this.emit(...args), this.counterRng);
 
     this.tick += 1;
     if (p1.health <= 0 || p2.health <= 0) {

@@ -22,8 +22,18 @@ export function decideAction(player, opponent, profile, rng) {
   }
   const distance = Math.abs(opponent.x - player.x);
   const candidates = ATTACK_ORDER.filter(type =>
-    player.cooldowns[type] <= 0 && distance <= ACTIONS[type].range
+    profile.actionWeights[type] > 0
+      && player.cooldowns[type] <= 0
+      && distance <= ACTIONS[type].range
   );
-  if (candidates.length > 0) return rng.pick(candidates);
+  if (candidates.length > 0) {
+    const totalWeight = candidates.reduce((sum, type) => sum + profile.actionWeights[type], 0);
+    let selection = rng.next() * totalWeight;
+    for (const type of candidates) {
+      selection -= profile.actionWeights[type];
+      if (selection < 0) return type;
+    }
+    return candidates.at(-1);
+  }
   return distance > WORLD.minSeparation ? "APPROACH" : "IDLE";
 }

@@ -8,9 +8,14 @@ const loadImage = source => new Promise((resolve, reject) => {
 });
 
 export async function loadAssets() {
-  const [arena, wrestlerSheet] = await Promise.all([
+  const [arena, p1Sheet, p2Sheet] = await Promise.all([
     loadImage(ASSETS.arena),
-    loadImage(ASSETS.wrestlerSheet)
+    loadImage(ASSETS.wrestlerSheets.P1),
+    loadImage(ASSETS.wrestlerSheets.P2)
   ]);
-  return { arena, wrestlerSheet };
+  return {
+    arena,
+    wrestlerSheets: { P1: p1Sheet, P2: p2Sheet },
+    sounds: ASSETS.sounds
+  };
 }

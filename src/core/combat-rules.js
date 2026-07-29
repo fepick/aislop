@@ -1,5 +1,5 @@
 import { ACTIONS, COMBAT } from "../config/combat-config.js";
-import { WORLD } from "../config/game-config.js";
+import { COUNTER, WORLD } from "../config/game-config.js";
 
 export const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
@@ -20,6 +20,14 @@ export function criticalChance(attacker) {
   );
 }
 
+export function counterChance(defender) {
+  return clamp(
+    COUNTER.baseChance + defender.stats.insight * COUNTER.insightScale,
+    COUNTER.chanceMin,
+    COUNTER.chanceMax
+  );
+}
+
 export function canHit(attacker, defender, actionConfig) {
   const signedDistance = (defender.x - attacker.x) * attacker.facing;
   if (signedDistance < 0) return false;
@@ -37,16 +45,39 @@ export function buildHit(attacker, defender, actionType, rng) {
   return { attacker, defender, actionType, damage, critical, knockback: config.knockback };
 }
 
-export function applyHits(hits, emit) {
+const applyDamage = ({ attacker, defender, actionType, damage, critical, knockback }, emit, eventType) => {
+  defender.health = Math.max(0, defender.health - damage);
+  defender.hitStunTicks = COMBAT.hitStunTicks;
+  defender.velocityX = attacker.facing * knockback;
+  defender.action = null;
+  attacker.metrics.totalDamageDealt += damage;
+  defender.metrics.totalDamageTaken += damage;
+  emit(eventType, attacker.id, defender.id, actionType, damage, defender.x);
+};
+
+export function applyHits(hits, emit, counterRng) {
   for (const hit of hits) {
     const { attacker, defender, actionType, damage, critical, knockback } = hit;
-    defender.health = Math.max(0, defender.health - damage);
-    defender.hitStunTicks = COMBAT.hitStunTicks;
-    defender.velocityX = attacker.facing * knockback;
-    defender.action = null;
-    attacker.metrics.totalDamageDealt += damage;
+    defender.metrics.countersAttempted += 1;
+    if (counterRng[defender.id].next() < counterChance(defender)) {
+      const counterDamage = normalDamage(ACTIONS.PUSH.baseDamage, defender, attacker);
+      defender.metrics.countersSucceeded += 1;
+      defender.metrics.counterDamageDealt += counterDamage;
+      defender.counterPoseTicks = COUNTER.poseTicks;
+      defender.action = null;
+      applyDamage({
+        attacker: defender,
+        defender: attacker,
+        actionType: "PUSH",
+        damage: counterDamage,
+        critical: false,
+        knockback: ACTIONS.PUSH.knockback
+      }, emit, "COUNTER");
+      continue;
+    }
+    applyDamage(hit, emit, critical ? "CRITICAL" : "HIT");
     attacker.metrics.attacksHit += 1;
-    defender.metrics.totalDamageTaken += damage;
+    attacker.metrics.actionHits[actionType] += 1;
     if (critical) attacker.metrics.criticalHits += 1;
     if (actionType === "ROPE_DROP_KICK") attacker.metrics.ropeDropkickHits += 1;
     attacker.rage = clamp(
@@ -59,7 +90,6 @@ export function applyHits(hits, emit) {
       0,
       COMBAT.rage.maximum
     );
-    emit(critical ? "CRITICAL" : "HIT", attacker.id, defender.id, actionType, damage, defender.x);
   }
 }
 

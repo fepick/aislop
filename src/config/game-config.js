@@ -1,6 +1,6 @@
-export const RULES_VERSION = "0.1.0";
-export const AI_PROFILE_VERSION = "0.1.0";
-export const RESULT_SCHEMA_VERSION = "0.1.0";
+export const RULES_VERSION = "0.2.0";
+export const AI_PROFILE_VERSION = "0.2.0";
+export const RESULT_SCHEMA_VERSION = "0.2.0";
 export const RNG_VERSION = "mulberry32-1";
 
 export const LOGICAL_WIDTH = 1920;
@@ -17,6 +17,14 @@ export const DEFAULT_STATS = Object.freeze({
   sharpness: 10,
   luck: 10,
   insight: 10
+});
+
+export const COUNTER = Object.freeze({
+  baseChance: 0.05,
+  insightScale: 0.01,
+  chanceMin: 0.05,
+  chanceMax: 0.45,
+  poseTicks: 12
 });
 
 export const WORLD = Object.freeze({

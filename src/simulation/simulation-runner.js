@@ -1,4 +1,10 @@
-import { AI_PROFILE_VERSION, FIXED_DT, RNG_VERSION, RULES_VERSION } from "../config/game-config.js";
+import {
+  AI_PROFILE_VERSION,
+  FIXED_DT,
+  RESULT_SCHEMA_VERSION,
+  RNG_VERSION,
+  RULES_VERSION
+} from "../config/game-config.js";
 import { Game } from "../core/game.js";
 import { mixSeed, normalizeSeed } from "../core/rng.js";
 import { aggregateResults } from "./results-aggregator.js";
@@ -42,7 +48,7 @@ export class BatchRunner {
       p2Damage: result.p2.totalDamageDealt
     }));
     return {
-      schemaVersion: "0.1.0",
+      schemaVersion: RESULT_SCHEMA_VERSION,
       createdAt: new Date().toISOString(),
       status: this.cancelled ? "cancelled" : "completed",
       requestedMatches: count,

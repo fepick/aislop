@@ -14,7 +14,7 @@ export const ATTACK_ORDER = Object.freeze(["KICK", "PUSH", "DROP_KICK"]);
 
 export const ACTIONS = Object.freeze({
   KICK: action(10, 5, 20, 205, 7, 52, 36),
-  PUSH: action(7, 5, 14, 170, 4, 88, 30),
+  PUSH: action(7, 5, 14, 205, 4, 88, 30),
   DROP_KICK: action(16, 6, 29, 250, 10, 105, 58, 245),
   ROPE_DROP_KICK: action(18, 25, 34, 270, 12, 170, 90, 920)
 });

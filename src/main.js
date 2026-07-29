@@ -2,6 +2,7 @@ import { FIXED_DT, MAX_STEPS_PER_RENDER } from "./config/game-config.js";
 import { Game } from "./core/game.js";
 import { normalizeSeed } from "./core/rng.js";
 import { loadAssets } from "./presentation/asset-loader.js";
+import { AudioManager } from "./presentation/audio-manager.js";
 import { Renderer } from "./presentation/renderer.js";
 import { BatchRunner } from "./simulation/simulation-runner.js";
 
@@ -20,6 +21,7 @@ const singleResult = document.querySelector("#single-result");
 
 let game;
 let renderer;
+let audio;
 let paused = true;
 let previousTimestamp = 0;
 let accumulator = 0;
@@ -43,7 +45,9 @@ function frame(timestamp) {
     accumulator += elapsed;
     let steps = 0;
     while (accumulator >= FIXED_DT && steps < MAX_STEPS_PER_RENDER) {
-      renderer.consume(game.step());
+      const events = game.step();
+      renderer.consume(events);
+      audio.consume(events);
       accumulator -= FIXED_DT;
       steps += 1;
     }
@@ -68,7 +72,9 @@ function renderBatch(result) {
     metric("KO 비율", percent(data.koRate)),
     metric("평균 시간", `${data.averageMatchDuration.toFixed(2)}s`),
     metric("P1 평균 피해", data.averageDamageDealtByP1.toFixed(1)),
-    metric("P2 평균 피해", data.averageDamageDealtByP2.toFixed(1))
+    metric("P2 평균 피해", data.averageDamageDealtByP2.toFixed(1)),
+    metric("P1 평균 카운터", data.averageCountersByP1.toFixed(2)),
+    metric("P2 평균 카운터", data.averageCountersByP2.toFixed(2))
   ].join("");
   singleResult.textContent = result.singleMatch ? JSON.stringify(result.singleMatch, null, 2) : "";
 }
@@ -104,7 +110,14 @@ async function runBatch(count) {
   }
 }
 
-startButton.addEventListener("click", createSpectatorGame);
+startButton.addEventListener("click", async () => {
+  try {
+    await audio.unlock();
+  } catch (error) {
+    progressLabel.textContent = `오디오 경고: ${error.message}`;
+  }
+  createSpectatorGame();
+});
 pauseButton.addEventListener("click", () => { paused = true; });
 resumeButton.addEventListener("click", () => { if (game?.status === "RUNNING") paused = false; });
 restartButton.addEventListener("click", createSpectatorGame);
@@ -129,6 +142,7 @@ downloadButton.addEventListener("click", () => {
 try {
   const assets = await loadAssets();
   renderer = new Renderer(canvas, assets);
+  audio = new AudioManager(assets.sounds);
   createSpectatorGame();
   requestAnimationFrame(frame);
 } catch (error) {

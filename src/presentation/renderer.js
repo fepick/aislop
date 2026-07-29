@@ -1,5 +1,6 @@
 import { LOGICAL_HEIGHT, LOGICAL_WIDTH, TIME_LIMIT_TICKS, WORLD } from "../config/game-config.js";
 import { SPRITE_SHEET } from "../config/asset-manifest.js";
+import { shakeForDamage, shakeOffset } from "./feedback.js";
 
 const font = (size, weight = "bold") => `${weight} ${size}px "Courier New", monospace`;
 
@@ -10,12 +11,21 @@ export class Renderer {
     this.ctx.imageSmoothingEnabled = false;
     this.assets = assets;
     this.floating = [];
+    this.shake = { strength: 0, frames: 0, totalFrames: 0 };
   }
 
   consume(events) {
     for (const event of events) {
-      if (event.type === "HIT" || event.type === "CRITICAL") {
+      if (event.type === "HIT" || event.type === "CRITICAL" || event.type === "COUNTER") {
         this.floating.push({ ...event, life: 55 });
+        const shake = shakeForDamage(event.value);
+        if (shake.strength > this.shake.strength || shake.frames > this.shake.frames) {
+          this.shake = {
+            strength: Math.max(this.shake.strength, shake.strength),
+            frames: Math.max(this.shake.frames, shake.frames),
+            totalFrames: Math.max(this.shake.totalFrames, shake.frames)
+          };
+        }
       }
     }
     if (this.floating.length > 24) this.floating.splice(0, this.floating.length - 24);
@@ -50,7 +60,7 @@ export class Renderer {
       ctx.scale(-1, 1);
       x = 0;
     }
-    ctx.drawImage(this.assets.wrestlerSheet, 0, 0, 543, 724, x - 4, -9, 140, 187);
+    ctx.drawImage(this.assets.wrestlerSheets[player.id], 0, 0, 543, 724, x - 4, -9, 140, 187);
     ctx.restore();
   }
 
@@ -85,7 +95,11 @@ export class Renderer {
 
   drawPlayer(player) {
     const ctx = this.ctx;
-    let pose = player.hitStunTicks > 0 ? "HIT_STUN" : player.action?.type ?? "IDLE";
+    let pose = player.counterPoseTicks > 0
+      ? "PUSH"
+      : player.hitStunTicks > 0
+        ? "HIT_STUN"
+        : player.action?.type ?? "IDLE";
     if (player.health <= 0) pose = "KO";
     const frame = SPRITE_SHEET.frames[pose] ?? 0;
     const drawHeight = SPRITE_SHEET.drawHeight;
@@ -95,7 +109,7 @@ export class Renderer {
     if (player.facing < 0) ctx.scale(-1, 1);
     ctx.globalAlpha = player.hitStunTicks > 0 && player.hitStunTicks % 4 < 2 ? 0.58 : 1;
     ctx.drawImage(
-      this.assets.wrestlerSheet,
+      this.assets.wrestlerSheets[player.id],
       frame * SPRITE_SHEET.frameWidth, 0, SPRITE_SHEET.frameWidth, SPRITE_SHEET.frameHeight,
       -drawWidth * SPRITE_SHEET.pivotX, -drawHeight * SPRITE_SHEET.pivotY,
       drawWidth, drawHeight
@@ -111,8 +125,8 @@ export class Renderer {
       const progress = 1 - item.life / 55;
       ctx.globalAlpha = item.life / 55;
       ctx.textAlign = "center";
-      ctx.font = font(item.type === "CRITICAL" ? 44 : 36);
-      ctx.fillStyle = item.type === "CRITICAL" ? "#ff3030" : "#111";
+      ctx.font = font(item.type === "CRITICAL" || item.type === "COUNTER" ? 44 : 36);
+      ctx.fillStyle = item.type === "COUNTER" ? "#258cff" : item.type === "CRITICAL" ? "#ff3030" : "#111";
       ctx.strokeStyle = "#fff";
       ctx.lineWidth = 5;
       const y = item.position.y - progress * 110;
@@ -121,6 +135,10 @@ export class Renderer {
       if (item.type === "CRITICAL") {
         ctx.font = font(22);
         ctx.fillText("CRITICAL", item.position.x, y - 42);
+      }
+      if (item.type === "COUNTER") {
+        ctx.font = font(22);
+        ctx.fillText("COUNTER", item.position.x, y - 42);
       }
       item.life -= 1;
     }
@@ -147,11 +165,20 @@ export class Renderer {
     const ctx = this.ctx;
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
-    ctx.drawImage(this.assets.arena, 0, 0, 480, 270, 0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+    const offset = shakeOffset(this.shake);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 190, LOGICAL_WIDTH, LOGICAL_HEIGHT - 190);
+    ctx.clip();
+    ctx.translate(offset.x, offset.y);
+    ctx.drawImage(this.assets.arena, 0, 0, 480, 270, -20, -20, LOGICAL_WIDTH + 40, LOGICAL_HEIGHT + 40);
     this.drawPlayer(game.players[0]);
     this.drawPlayer(game.players[1]);
+    ctx.restore();
     this.drawHud(game);
     this.drawFloating();
     this.drawOverlay(game);
+    this.shake.frames = Math.max(0, this.shake.frames - 1);
+    if (this.shake.frames === 0) this.shake = { strength: 0, frames: 0, totalFrames: 0 };
   }
 }
