@@ -16,6 +16,10 @@ export function counterChance(defender) {
   return defender.derivedStats.counterChance;
 }
 
+export function dodgeChance(defender) {
+  return defender.derivedStats.dodgeChance;
+}
+
 export function canHit(attacker, defender, actionConfig) {
   const signedDistance = (defender.x - attacker.x) * attacker.facing;
   if (signedDistance < 0) return false;
@@ -51,22 +55,59 @@ const applyDamage = ({
   emit(eventType, attacker.id, defender.id, actionType, damage, defender.x);
 };
 
-export function applyHits(hits, emit, counterRng) {
-  for (const hit of hits) {
-    const { attacker, defender, actionType, damage, critical, knockback } = hit;
+export function applyHits(hits, emit, counterRng, dodgeRng = null) {
+  const decisions = hits.map(hit => {
+    const { defender, actionType } = hit;
     const canCounter = actionType !== "ROPE_DROP_KICK" && defender.pendingCounter === null;
     if (canCounter) defender.metrics.countersAttempted += 1;
-    if (canCounter && counterRng[defender.id].next() < counterChance(defender)) {
-      const counterDamage = normalDamage(ACTIONS.PUSH.baseDamage, defender, attacker);
-      defender.action = null;
-      defender.pendingCounter = {
-        targetId: attacker.id,
-        remainingTicks: COUNTER.delayTicks,
-        damage: counterDamage,
-        knockback: ACTIONS.PUSH.knockback,
-        knockbackDirection: defender.facing
-      };
-      emit("COUNTER_TRIGGERED", defender.id, attacker.id, "PUSH", 0, defender.x);
+    return {
+      hit,
+      countered: canCounter && counterRng[defender.id].next() < counterChance(defender)
+    };
+  });
+
+  const counteringPlayerIds = new Set(
+    decisions.filter(decision => decision.countered).map(decision => decision.hit.defender.id)
+  );
+
+  for (const decision of decisions) {
+    const { attacker, defender } = decision.hit;
+    const canDodge = !decision.countered && !counteringPlayerIds.has(attacker.id);
+    if (!canDodge) {
+      decision.dodged = false;
+      continue;
+    }
+    defender.metrics.dodgesAttempted += 1;
+    decision.dodged = dodgeRng !== null
+      && dodgeRng[defender.id].next() < dodgeChance(defender);
+  }
+
+  for (const { hit, countered } of decisions) {
+    const { attacker, defender } = hit;
+    if (!countered) continue;
+    const counterDamage = normalDamage(ACTIONS.PUSH.baseDamage, defender, attacker);
+    defender.action = null;
+    defender.pendingCounter = {
+      targetId: attacker.id,
+      remainingTicks: COUNTER.delayTicks,
+      damage: counterDamage,
+      knockback: ACTIONS.PUSH.knockback,
+      knockbackDirection: defender.facing
+    };
+    emit("COUNTER_TRIGGERED", defender.id, attacker.id, "PUSH", 0, defender.x);
+  }
+
+  for (const { hit, countered, dodged } of decisions) {
+    const { attacker, defender, actionType, critical } = hit;
+    if (countered || counteringPlayerIds.has(attacker.id)) {
+      if (!countered) {
+        emit("ACTION_CANCELLED", attacker.id, defender.id, actionType, 0, attacker.x);
+      }
+      continue;
+    }
+    if (dodged) {
+      defender.metrics.dodgesSucceeded += 1;
+      emit("DODGE", defender.id, attacker.id, actionType, 0, defender.x);
       continue;
     }
     applyDamage(hit, emit, critical ? "CRITICAL" : "HIT");

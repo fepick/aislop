@@ -5,6 +5,7 @@ import {
   applyHits,
   counterChance,
   criticalChance,
+  dodgeChance,
   normalDamage
 } from "../src/core/combat-rules.js";
 import { Game } from "../src/core/game.js";
@@ -80,8 +81,24 @@ test("stat rules derive documented baseline and investment values", () => {
   assert.equal(invested.maxHealth, 150);
   assert.equal(invested.attackTimingScale, 0.65);
   assert.ok(Math.abs(invested.moveScale - 1.4) < 1e-12);
+  assert.equal(invested.dodgeChance, 0.05);
   assert.equal(invested.criticalMultiplier, 1.75);
   assert.ok(Math.abs(invested.counterChance - 0.25) < 1e-12);
+});
+
+test("moveSpeed dodge chance starts above baseline and caps at five percent", () => {
+  assert.equal(dodgeChance(new Game({
+    seed: 1,
+    p1Stats: { ...DEFAULT_STATS, moveSpeed: 10 }
+  }).players[0]), 0);
+  assert.ok(Math.abs(dodgeChance(new Game({
+    seed: 1,
+    p1Stats: { ...DEFAULT_STATS, moveSpeed: 15 }
+  }).players[0]) - 0.025) < 1e-12);
+  assert.equal(dodgeChance(new Game({
+    seed: 1,
+    p1Stats: { ...DEFAULT_STATS, moveSpeed: 100 }
+  }).players[0]), 0.05);
 });
 
 test("luck is preserved but has no derived combat effect", () => {
@@ -207,6 +224,163 @@ test("a successful counter ignores the hit and retaliates after 18 ticks", () =>
   assert.equal(counterEvents.filter(event => event.type === "COUNTER").length, 1);
 });
 
+test("a counter cancels the counterer's simultaneous normal attack", () => {
+  const game = new Game({ seed: 1 });
+  const [p1, p2] = game.players;
+  const events = [];
+  applyHits([
+    {
+      attacker: p1,
+      defender: p2,
+      actionType: "KICK",
+      damage: 20,
+      critical: false,
+      knockback: ACTIONS.KICK.knockback
+    },
+    {
+      attacker: p2,
+      defender: p1,
+      actionType: "KICK",
+      damage: 20,
+      critical: false,
+      knockback: ACTIONS.KICK.knockback
+    }
+  ], (...args) => events.push(args), {
+    P1: { next: () => 1 },
+    P2: { next: () => 0 }
+  });
+  assert.equal(p1.health, p1.derivedStats.maxHealth);
+  assert.equal(p2.health, p2.derivedStats.maxHealth);
+  assert.equal(p1.metrics.attacksHit, 0);
+  assert.equal(p2.metrics.attacksHit, 0);
+  assert.equal(p1.pendingCounter, null);
+  assert.equal(p2.pendingCounter.targetId, "P1");
+  assert.equal(events.filter(event => event[0] === "COUNTER_TRIGGERED").length, 1);
+  assert.equal(events.filter(event => event[0] === "ACTION_CANCELLED").length, 1);
+});
+
+test("simultaneous counters are resolved symmetrically", () => {
+  const game = new Game({ seed: 1 });
+  const [p1, p2] = game.players;
+  const events = [];
+  const hit = (attacker, defender) => ({
+    attacker,
+    defender,
+    actionType: "KICK",
+    damage: 20,
+    critical: false,
+    knockback: ACTIONS.KICK.knockback
+  });
+  applyHits([hit(p1, p2), hit(p2, p1)], (...args) => events.push(args), {
+    P1: { next: () => 0 },
+    P2: { next: () => 0 }
+  });
+  assert.equal(p1.health, p1.derivedStats.maxHealth);
+  assert.equal(p2.health, p2.derivedStats.maxHealth);
+  assert.equal(p1.pendingCounter.targetId, "P2");
+  assert.equal(p2.pendingCounter.targetId, "P1");
+  assert.equal(events.filter(event => event[0] === "COUNTER_TRIGGERED").length, 2);
+  assert.equal(events.filter(event => event[0] === "HIT").length, 0);
+});
+
+test("a successful dodge prevents all hit effects and metrics", () => {
+  const game = new Game({
+    seed: 1,
+    p2Stats: { ...DEFAULT_STATS, moveSpeed: 20 }
+  });
+  const [attacker, defender] = game.players;
+  const events = [];
+  const before = {
+    health: defender.health,
+    action: { type: "APPROACH", elapsed: 0, hasHit: false },
+    attackerRage: attacker.rage,
+    defenderRage: defender.rage,
+    velocityX: defender.velocityX
+  };
+  defender.action = before.action;
+  applyHits([{
+    attacker,
+    defender,
+    actionType: "KICK",
+    damage: 99,
+    critical: true,
+    knockback: ACTIONS.KICK.knockback
+  }], (...args) => events.push(args), {
+    P1: { next: () => 1 },
+    P2: { next: () => 1 }
+  }, {
+    P1: { next: () => 1 },
+    P2: { next: () => 0 }
+  });
+  assert.equal(defender.health, before.health);
+  assert.equal(defender.action, before.action);
+  assert.equal(defender.velocityX, before.velocityX);
+  assert.equal(attacker.rage, before.attackerRage);
+  assert.equal(defender.rage, before.defenderRage);
+  assert.equal(attacker.metrics.attacksHit, 0);
+  assert.equal(attacker.metrics.criticalHits, 0);
+  assert.equal(defender.metrics.dodgesAttempted, 1);
+  assert.equal(defender.metrics.dodgesSucceeded, 1);
+  assert.equal(events.length, 1);
+  assert.equal(events[0][0], "DODGE");
+  assert.equal(events[0][1], "P2");
+  assert.equal(events[0][4], 0);
+});
+
+test("counter priority skips dodge RNG and dodge metrics", () => {
+  const game = new Game({
+    seed: 1,
+    p2Stats: { ...DEFAULT_STATS, moveSpeed: 20 }
+  });
+  const [attacker, defender] = game.players;
+  let dodgeRolls = 0;
+  applyHits([{
+    attacker,
+    defender,
+    actionType: "KICK",
+    damage: 20,
+    critical: false,
+    knockback: ACTIONS.KICK.knockback
+  }], () => {}, {
+    P1: { next: () => 1 },
+    P2: { next: () => 0 }
+  }, {
+    P1: { next: () => { dodgeRolls += 1; return 0; } },
+    P2: { next: () => { dodgeRolls += 1; return 0; } }
+  });
+  assert.equal(dodgeRolls, 0);
+  assert.equal(defender.metrics.dodgesAttempted, 0);
+  assert.equal(defender.metrics.dodgesSucceeded, 0);
+  assert.ok(defender.pendingCounter);
+});
+
+test("rope dropkick can be dodged without a counter roll", () => {
+  const game = new Game({
+    seed: 1,
+    p2Stats: { ...DEFAULT_STATS, moveSpeed: 20 }
+  });
+  const [attacker, defender] = game.players;
+  let counterRolls = 0;
+  applyHits([{
+    attacker,
+    defender,
+    actionType: "ROPE_DROP_KICK",
+    damage: 30,
+    critical: false,
+    knockback: ACTIONS.ROPE_DROP_KICK.knockback
+  }], () => {}, {
+    P1: { next: () => { counterRolls += 1; return 0; } },
+    P2: { next: () => { counterRolls += 1; return 0; } }
+  }, {
+    P1: { next: () => 1 },
+    P2: { next: () => 0 }
+  });
+  assert.equal(counterRolls, 0);
+  assert.equal(defender.metrics.countersAttempted, 0);
+  assert.equal(defender.metrics.dodgesSucceeded, 1);
+  assert.equal(attacker.metrics.ropeDropkickHits, 0);
+});
+
 test("rope dropkick bypasses counter metrics and RNG", () => {
   const game = new Game({ seed: 1 });
   const [attacker, defender] = game.players;
@@ -251,6 +425,10 @@ test("rope dropkick starts one tracked announcement", () => {
     actionType: "PUSH",
     actorId: "P1"
   }), null);
+  assert.deepEqual(announcementForEvent({
+    type: "DODGE",
+    actorId: "P1"
+  }), { actorId: "P1", text: "회피!", life: 42 });
 });
 
 test("audio buffers load once and can play mapped events", async () => {
@@ -356,6 +534,49 @@ test("spectator and simulation share combat results", () => {
   const simulation = runMatch({ seed: 90, mode: "simulation" });
   const withoutMode = ({ mode, ...rest }) => rest;
   assert.deepEqual(withoutMode(spectator), withoutMode(simulation));
+});
+
+test("spectator and simulation canonical results match across 100 seeds", () => {
+  const withoutMode = ({ mode, ...rest }) => rest;
+  for (let seed = 0; seed < 100; seed += 1) {
+    assert.deepEqual(
+      withoutMode(runMatch({ seed, mode: "spectator" })),
+      withoutMode(runMatch({ seed, mode: "simulation" }))
+    );
+  }
+});
+
+test("higher insight produces a higher counter success rate across 1000 seeds", () => {
+  const rates = insight => {
+    const results = Array.from({ length: 1000 }, (_, seed) => runMatch({
+      seed,
+      p1Stats: { ...DEFAULT_STATS, insight },
+      p2Stats: DEFAULT_STATS
+    }));
+    return aggregateResults(results).p1CounterSuccessRate;
+  };
+  const baselineRate = rates(10);
+  const investedRate = rates(20);
+  assert.ok(baselineRate > 0.12 && baselineRate < 0.18);
+  assert.ok(investedRate > 0.22 && investedRate < 0.28);
+  assert.ok(investedRate > baselineRate);
+});
+
+test("moveSpeed 20 produces a five percent dodge rate across 1000 seeds", () => {
+  const baseline = aggregateResults(Array.from({ length: 1000 }, (_, seed) => runMatch({
+    seed,
+    p1Stats: { ...DEFAULT_STATS, moveSpeed: 10 },
+    p2Stats: DEFAULT_STATS
+  })));
+  const faster = aggregateResults(Array.from({ length: 1000 }, (_, seed) => runMatch({
+    seed,
+    p1Stats: { ...DEFAULT_STATS, moveSpeed: 20 },
+    p2Stats: DEFAULT_STATS
+  })));
+  assert.equal(baseline.p1DodgeSuccessRate, 0);
+  assert.ok(faster.p1DodgeSuccessRate > 0.035);
+  assert.ok(faster.p1DodgeSuccessRate < 0.065);
+  assert.ok(faster.averageDodgesByP1 > 0);
 });
 
 test("matches terminate within the fixed 60 second limit", () => {

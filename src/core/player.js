@@ -19,6 +19,8 @@ const emptyMetrics = () => ({
   countersAttempted: 0,
   countersSucceeded: 0,
   counterDamageDealt: 0,
+  dodgesAttempted: 0,
+  dodgesSucceeded: 0,
   actionAttempts: actionCounters(),
   actionHits: actionCounters()
 });

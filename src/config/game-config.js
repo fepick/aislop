@@ -1,7 +1,7 @@
-export const RULES_VERSION = "0.4.0";
+export const RULES_VERSION = "0.6.0";
 export const AI_PROFILE_VERSION = "0.2.0";
-export const RESULT_SCHEMA_VERSION = "0.3.0";
-export const STAT_RULES_VERSION = "1.0.0";
+export const RESULT_SCHEMA_VERSION = "0.4.0";
+export const STAT_RULES_VERSION = "1.1.0";
 export const RNG_VERSION = "mulberry32-1";
 
 export const LOGICAL_WIDTH = 1920;
@@ -30,6 +30,12 @@ export const COUNTER = Object.freeze({
   chanceMax: 0.45,
   poseTicks: 12,
   delayTicks: 18
+});
+
+export const DODGE = Object.freeze({
+  pointsThreshold: 10,
+  chancePerPoint: 0.005,
+  chanceMax: 0.05
 });
 
 export const WORLD = Object.freeze({
