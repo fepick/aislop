@@ -1,31 +1,19 @@
 import { ACTIONS, COMBAT } from "../config/combat-config.js";
 import { COUNTER, WORLD } from "../config/game-config.js";
+import { damageFor } from "./stat-rules.js";
 
 export const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
 export function normalDamage(baseDamage, attacker, defender) {
-  return Math.max(
-    COMBAT.minimumDamage,
-    Math.floor(baseDamage + attacker.stats.power * COMBAT.powerScale - defender.stats.defense * COMBAT.defenseScale)
-  );
+  return damageFor(baseDamage, attacker.rawStats, defender.rawStats);
 }
 
 export function criticalChance(attacker) {
-  return clamp(
-    COMBAT.criticalBaseChance
-      + attacker.stats.sharpness * COMBAT.criticalSharpnessScale
-      + attacker.stats.luck * COMBAT.criticalLuckScale,
-    COMBAT.criticalChanceMin,
-    COMBAT.criticalChanceMax
-  );
+  return attacker.derivedStats.criticalChance;
 }
 
 export function counterChance(defender) {
-  return clamp(
-    COUNTER.baseChance + defender.stats.insight * COUNTER.insightScale,
-    COUNTER.chanceMin,
-    COUNTER.chanceMax
-  );
+  return defender.derivedStats.counterChance;
 }
 
 export function canHit(attacker, defender, actionConfig) {
@@ -41,14 +29,22 @@ export function buildHit(attacker, defender, actionType, rng) {
   const critical = rng.next() < criticalChance(attacker);
   let damage = normalDamage(config.baseDamage, attacker, defender);
   if (actionType === "ROPE_DROP_KICK") damage += COMBAT.ropeBonusDamage;
-  if (critical) damage = Math.floor(damage * COMBAT.criticalMultiplier);
+  if (critical) damage = Math.floor(damage * attacker.derivedStats.criticalMultiplier);
   return { attacker, defender, actionType, damage, critical, knockback: config.knockback };
 }
 
-const applyDamage = ({ attacker, defender, actionType, damage, critical, knockback }, emit, eventType) => {
+const applyDamage = ({
+  attacker,
+  defender,
+  actionType,
+  damage,
+  critical,
+  knockback,
+  knockbackDirection = attacker.facing
+}, emit, eventType) => {
   defender.health = Math.max(0, defender.health - damage);
   defender.hitStunTicks = COMBAT.hitStunTicks;
-  defender.velocityX = attacker.facing * knockback;
+  defender.velocityX = knockbackDirection * knockback;
   defender.action = null;
   attacker.metrics.totalDamageDealt += damage;
   defender.metrics.totalDamageTaken += damage;
@@ -58,21 +54,19 @@ const applyDamage = ({ attacker, defender, actionType, damage, critical, knockba
 export function applyHits(hits, emit, counterRng) {
   for (const hit of hits) {
     const { attacker, defender, actionType, damage, critical, knockback } = hit;
-    defender.metrics.countersAttempted += 1;
-    if (counterRng[defender.id].next() < counterChance(defender)) {
+    const canCounter = actionType !== "ROPE_DROP_KICK" && defender.pendingCounter === null;
+    if (canCounter) defender.metrics.countersAttempted += 1;
+    if (canCounter && counterRng[defender.id].next() < counterChance(defender)) {
       const counterDamage = normalDamage(ACTIONS.PUSH.baseDamage, defender, attacker);
-      defender.metrics.countersSucceeded += 1;
-      defender.metrics.counterDamageDealt += counterDamage;
-      defender.counterPoseTicks = COUNTER.poseTicks;
       defender.action = null;
-      applyDamage({
-        attacker: defender,
-        defender: attacker,
-        actionType: "PUSH",
+      defender.pendingCounter = {
+        targetId: attacker.id,
+        remainingTicks: COUNTER.delayTicks,
         damage: counterDamage,
-        critical: false,
-        knockback: ACTIONS.PUSH.knockback
-      }, emit, "COUNTER");
+        knockback: ACTIONS.PUSH.knockback,
+        knockbackDirection: defender.facing
+      };
+      emit("COUNTER_TRIGGERED", defender.id, attacker.id, "PUSH", 0, defender.x);
       continue;
     }
     applyDamage(hit, emit, critical ? "CRITICAL" : "HIT");
@@ -91,6 +85,21 @@ export function applyHits(hits, emit, counterRng) {
       COMBAT.rage.maximum
     );
   }
+}
+
+export function applyPendingCounter(counterer, target, pending, emit) {
+  counterer.metrics.countersSucceeded += 1;
+  counterer.metrics.counterDamageDealt += pending.damage;
+  counterer.counterPoseTicks = COUNTER.poseTicks;
+  applyDamage({
+    attacker: counterer,
+    defender: target,
+    actionType: "PUSH",
+    damage: pending.damage,
+    critical: false,
+    knockback: pending.knockback,
+    knockbackDirection: pending.knockbackDirection
+  }, emit, "COUNTER");
 }
 
 export function resolvePlayerOverlap(p1, p2) {

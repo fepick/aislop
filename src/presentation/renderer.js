@@ -1,6 +1,6 @@
 import { LOGICAL_HEIGHT, LOGICAL_WIDTH, TIME_LIMIT_TICKS, WORLD } from "../config/game-config.js";
 import { SPRITE_SHEET } from "../config/asset-manifest.js";
-import { shakeForDamage, shakeOffset } from "./feedback.js";
+import { announcementForEvent, shakeForDamage, shakeOffset } from "./feedback.js";
 
 const font = (size, weight = "bold") => `${weight} ${size}px "Courier New", monospace`;
 
@@ -11,11 +11,14 @@ export class Renderer {
     this.ctx.imageSmoothingEnabled = false;
     this.assets = assets;
     this.floating = [];
+    this.announcements = [];
     this.shake = { strength: 0, frames: 0, totalFrames: 0 };
   }
 
   consume(events) {
     for (const event of events) {
+      const announcement = announcementForEvent(event);
+      if (announcement) this.announcements.push(announcement);
       if (event.type === "HIT" || event.type === "CRITICAL" || event.type === "COUNTER") {
         this.floating.push({ ...event, life: 55 });
         const shake = shakeForDamage(event.value);
@@ -29,6 +32,12 @@ export class Renderer {
       }
     }
     if (this.floating.length > 24) this.floating.splice(0, this.floating.length - 24);
+  }
+
+  reset() {
+    this.floating = [];
+    this.announcements = [];
+    this.shake = { strength: 0, frames: 0, totalFrames: 0 };
   }
 
   drawBar(x, y, width, height, value, maximum, color, reverse = false) {
@@ -77,8 +86,8 @@ export class Renderer {
     ctx.fillText(p1.name, 185, 60);
     ctx.textAlign = "right";
     ctx.fillText(p2.name, 1735, 60);
-    this.drawBar(185, 76, 600, 58, p1.health, p1.stats.maxHealth, p1.color);
-    this.drawBar(1135, 76, 600, 58, p2.health, p2.stats.maxHealth, p2.color, true);
+    this.drawBar(185, 76, 600, 58, p1.health, p1.derivedStats.maxHealth, p1.color);
+    this.drawBar(1135, 76, 600, 58, p2.health, p2.derivedStats.maxHealth, p2.color, true);
     this.drawBar(185, 143, 420, 25, p1.rage, 100, "#f2b544");
     this.drawBar(1315, 143, 420, 25, p2.rage, 100, "#f2b544", true);
     const seconds = Math.max(0, Math.ceil((TIME_LIMIT_TICKS - game.tick) / 60));
@@ -146,6 +155,30 @@ export class Renderer {
     this.floating = this.floating.filter(item => item.life > 0);
   }
 
+  drawAnnouncements(game) {
+    if (game.status !== "RUNNING") {
+      this.announcements = [];
+      return;
+    }
+    const ctx = this.ctx;
+    ctx.textAlign = "center";
+    ctx.font = font(38);
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = "#fff";
+    ctx.fillStyle = "#e62b2b";
+    for (const item of this.announcements) {
+      const player = game.players.find(candidate => candidate.id === item.actorId);
+      if (!player) continue;
+      const halfWidth = ctx.measureText(item.text).width / 2;
+      const x = Math.max(halfWidth + 20, Math.min(LOGICAL_WIDTH - halfWidth - 20, player.x));
+      const y = Math.max(235, player.y - 365);
+      ctx.strokeText(item.text, x, y);
+      ctx.fillText(item.text, x, y);
+      item.life -= 1;
+    }
+    this.announcements = this.announcements.filter(item => item.life > 0);
+  }
+
   drawOverlay(game) {
     if (game.status !== "FINISHED") return;
     const ctx = this.ctx;
@@ -177,6 +210,7 @@ export class Renderer {
     ctx.restore();
     this.drawHud(game);
     this.drawFloating();
+    this.drawAnnouncements(game);
     this.drawOverlay(game);
     this.shake.frames = Math.max(0, this.shake.frames - 1);
     if (this.shake.frames === 0) this.shake = { strength: 0, frames: 0, totalFrames: 0 };

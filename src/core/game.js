@@ -5,6 +5,7 @@ import {
   RNG_VERSION,
   RULES_VERSION,
   RESULT_SCHEMA_VERSION,
+  STAT_RULES_VERSION,
   TIME_LIMIT_TICKS,
   WORLD
 } from "../config/game-config.js";
@@ -12,11 +13,18 @@ import { ACTIONS } from "../config/combat-config.js";
 import { AI_PROFILES } from "../config/ai-profiles.js";
 import { SeededRng, mixSeed, normalizeSeed } from "./rng.js";
 import { createPlayer } from "./player.js";
-import { applyHits, buildHit, canHit, clamp, resolvePlayerOverlap } from "./combat-rules.js";
+import {
+  applyHits,
+  applyPendingCounter,
+  buildHit,
+  canHit,
+  clamp,
+  resolvePlayerOverlap
+} from "./combat-rules.js";
 
 const cooldownKeys = Object.keys(ACTIONS);
 const scaledTiming = (player, config) => {
-  const scale = clamp(10 / Math.max(1, player.stats.attackSpeed), 0.5, 2);
+  const scale = player.derivedStats.attackTimingScale;
   const startup = Math.max(1, Math.round(config.startup * scale));
   const active = Math.max(1, Math.round(config.active * scale));
   const recovery = Math.max(1, Math.round(config.recovery * scale));
@@ -97,11 +105,12 @@ export class Game {
       return;
     }
 
+    if (player.pendingCounter) return;
     if (!player.action) return;
     const action = player.action;
     if (action.type === "APPROACH") {
       player.facing = opponentX >= player.x ? 1 : -1;
-      player.x += player.facing * WORLD.approachSpeed * FIXED_DT;
+      player.x += player.facing * WORLD.approachSpeed * player.derivedStats.moveScale * FIXED_DT;
       action.elapsed += 1;
       if (Math.abs(opponentX - player.x) <= 220 || action.elapsed >= 30) {
         player.action = null;
@@ -117,7 +126,7 @@ export class Game {
       player.x += player.facing * config.moveSpeed * FIXED_DT;
     }
     if (action.type === "ROPE_DROP_KICK" && action.elapsed >= timing.startup && action.elapsed < timing.startup + timing.active) {
-      player.x += player.facing * config.moveSpeed * FIXED_DT;
+      player.x += player.facing * config.moveSpeed * player.derivedStats.moveScale * FIXED_DT;
     }
     player.x = clamp(player.x, WORLD.ringMinX, WORLD.ringMaxX);
     if (action.elapsed >= timing.total) {
@@ -127,13 +136,49 @@ export class Game {
     }
   }
 
+  resolvePendingCounters() {
+    const due = [];
+    for (const counterer of this.players) {
+      const pending = counterer.pendingCounter;
+      if (!pending) continue;
+      pending.remainingTicks -= 1;
+      if (pending.remainingTicks > 0) continue;
+      counterer.pendingCounter = null;
+      const target = this.players.find(player => player.id === pending.targetId);
+      if (counterer.health > 0 && target?.health > 0) due.push({ counterer, target, pending });
+    }
+    for (const item of due) {
+      applyPendingCounter(item.counterer, item.target, item.pending, (...args) => this.emit(...args));
+    }
+  }
+
+  finishIfNeeded() {
+    const [p1, p2] = this.players;
+    if (p1.health > 0 && p2.health > 0) return false;
+    this.status = "FINISHED";
+    if (p1.health <= 0 && p2.health <= 0) {
+      this.winner = "DRAW";
+      this.resultType = "DRAW";
+    } else {
+      this.winner = p1.health > 0 ? "P1" : "P2";
+      this.resultType = "KO";
+    }
+    this.emit("KO", this.winner, null, null, 0, 960);
+    return true;
+  }
+
   step() {
     if (this.status !== "RUNNING") return this.recentEvents;
     this.recentEvents = [];
     const [p1, p2] = this.players;
+    this.resolvePendingCounters();
+    if (this.finishIfNeeded()) {
+      this.tick += 1;
+      return this.recentEvents;
+    }
 
     for (const [player, opponent] of [[p1, p2], [p2, p1]]) {
-      if (player.hitStunTicks <= 0 && !player.action) {
+      if (player.hitStunTicks <= 0 && !player.action && !player.pendingCounter) {
         player.decisionTicks -= 1;
         if (player.decisionTicks <= 0) {
           const profile = AI_PROFILES[player.aiProfileId];
@@ -165,16 +210,8 @@ export class Game {
     applyHits(hits, (...args) => this.emit(...args), this.counterRng);
 
     this.tick += 1;
-    if (p1.health <= 0 || p2.health <= 0) {
-      this.status = "FINISHED";
-      if (p1.health <= 0 && p2.health <= 0) {
-        this.winner = "DRAW";
-        this.resultType = "DRAW";
-      } else {
-        this.winner = p1.health > 0 ? "P1" : "P2";
-        this.resultType = "KO";
-      }
-      this.emit("KO", this.winner, null, null, 0, 960);
+    if (this.finishIfNeeded()) {
+      return this.recentEvents;
     } else if (this.tick >= TIME_LIMIT_TICKS) {
       this.status = "FINISHED";
       if (p1.health === p2.health) {
@@ -197,7 +234,8 @@ export class Game {
     if (this.status !== "FINISHED") throw new Error("Match is not finished");
     const playerResult = player => ({
       name: player.name,
-      stats: { ...player.stats },
+      rawStats: { ...player.rawStats },
+      derivedStats: { ...player.derivedStats },
       aiProfileId: player.aiProfileId,
       finalHealth: player.health,
       finalRage: player.rage,
@@ -209,8 +247,10 @@ export class Game {
       seed: this.seed,
       mode: this.mode,
       rulesVersion: RULES_VERSION,
+      statRulesVersion: STAT_RULES_VERSION,
       aiProfileVersion: AI_PROFILE_VERSION,
       rngAlgorithmVersion: RNG_VERSION,
+      unusedStats: ["luck"],
       winner: this.winner,
       resultType: this.resultType,
       elapsedTicks: this.tick,

@@ -1,6 +1,22 @@
-import { FIXED_DT, MAX_STEPS_PER_RENDER } from "./config/game-config.js";
+import {
+  DEFAULT_STATS,
+  FIXED_DT,
+  MAX_STEPS_PER_RENDER,
+  PLAYER_CONFIGS,
+  STAT_BUDGET,
+  UNUSED_STATS
+} from "./config/game-config.js";
 import { Game } from "./core/game.js";
 import { normalizeSeed } from "./core/rng.js";
+import {
+  STAT_KEYS,
+  STAT_LABELS,
+  adjustAllocation,
+  combatPower,
+  combatPreview,
+  createAllocation,
+  resetAllocation
+} from "./core/stat-rules.js";
 import { loadAssets } from "./presentation/asset-loader.js";
 import { AudioManager } from "./presentation/audio-manager.js";
 import { Renderer } from "./presentation/renderer.js";
@@ -18,6 +34,18 @@ const progressBar = document.querySelector("#progress-bar");
 const progressLabel = document.querySelector("#progress-label");
 const resultSummary = document.querySelector("#result-summary");
 const singleResult = document.querySelector("#single-result");
+const setupScreen = document.querySelector("#setup-screen");
+const battleScreen = document.querySelector("#battle-screen");
+const statBudget = document.querySelector("#stat-budget");
+const statControls = document.querySelector("#stat-controls");
+const combatPreviewElement = document.querySelector("#combat-preview");
+const opponentDescription = document.querySelector("#opponent-description");
+const opponentStatsElement = document.querySelector("#opponent-stats");
+const playerPower = document.querySelector("#player-power");
+const opponentPower = document.querySelector("#opponent-power");
+const resetStatsButton = document.querySelector("#reset-stats-button");
+const beginBattleButton = document.querySelector("#begin-battle-button");
+const backToSetupButton = document.querySelector("#back-to-setup-button");
 
 let game;
 let renderer;
@@ -27,14 +55,115 @@ let previousTimestamp = 0;
 let accumulator = 0;
 let lastBatchResult = null;
 let activeRunner = null;
+let allocation = createAllocation(DEFAULT_STATS, STAT_BUDGET);
+let battleStats = {
+  p1: { ...allocation.currentStats },
+  p2: { ...PLAYER_CONFIGS[1].stats }
+};
+
+startButton.disabled = true;
+beginBattleButton.disabled = true;
 
 const seed = () => normalizeSeed(seedInput.value);
 
-function createSpectatorGame() {
-  game = new Game({ seed: seed(), mode: "spectator" });
-  paused = false;
+function createSpectatorGame(start = true) {
+  game = new Game({
+    seed: seed(),
+    mode: "spectator",
+    p1Stats: battleStats.p1,
+    p2Stats: battleStats.p2
+  });
+  renderer?.reset();
+  paused = !start;
   accumulator = 0;
   previousTimestamp = 0;
+}
+
+const formatPercent = value => `${(value * 100).toFixed(0)}%`;
+
+function renderSetup() {
+  statBudget.textContent = allocation.remainingBudget;
+  statControls.innerHTML = STAT_KEYS.map(key => {
+    const unused = UNUSED_STATS.includes(key);
+    const canDecrease = !unused && allocation.currentStats[key] > allocation.baseStats[key];
+    const canIncrease = !unused && allocation.remainingBudget > 0;
+    return `
+      <div class="stat-row${unused ? " stat-unused" : ""}">
+        <span>${STAT_LABELS[key]}${unused ? "<small>현재 버전 미적용</small>" : ""}</span>
+        <button class="decrease" data-stat="${key}" data-delta="-1" ${canDecrease ? "" : "disabled"} aria-label="${STAT_LABELS[key]} 감소">−</button>
+        <strong class="stat-value">${allocation.currentStats[key]}</strong>
+        <button class="increase" data-stat="${key}" data-delta="1" ${canIncrease ? "" : "disabled"} aria-label="${STAT_LABELS[key]} 증가">＋</button>
+      </div>
+    `;
+  }).join("");
+
+  const preview = combatPreview(allocation.currentStats, PLAYER_CONFIGS[1].stats);
+  const previewItems = [
+    ["최소 데미지", preview.minDamage],
+    ["최대 데미지", preview.maxDamage],
+    ["치명타 확률", formatPercent(preview.criticalChance)],
+    ["치명타 배율", `${preview.criticalMultiplier.toFixed(2)}×`],
+    ["체력", preview.maxHealth],
+    ["방어 보정", `−${preview.defenseReduction.toFixed(2)}`],
+    ["카운터 확률", formatPercent(preview.counterChance)]
+  ];
+  combatPreviewElement.innerHTML = previewItems.map(([label, value]) =>
+    `<div class="preview-item"><span>${label}</span><strong>${value}</strong></div>`
+  ).join("");
+
+  opponentDescription.textContent = PLAYER_CONFIGS[1].description;
+  const opponent = PLAYER_CONFIGS[1].stats;
+  opponentStatsElement.innerHTML = [
+    ["POWER", opponent.power],
+    ["DEFENSE", opponent.defense],
+    ["SPEED", opponent.attackSpeed],
+    ["MOVE", opponent.moveSpeed]
+  ].map(([label, value]) =>
+    `<div class="opponent-stat"><span>${label}</span><strong>${value}</strong></div>`
+  ).join("");
+  playerPower.textContent = combatPower(allocation.currentStats);
+  opponentPower.textContent = combatPower(opponent);
+}
+
+function showSetup() {
+  paused = true;
+  activeRunner?.cancel();
+  battleScreen.hidden = true;
+  setupScreen.hidden = false;
+  renderSetup();
+}
+
+function beginBattle() {
+  battleStats = {
+    p1: { ...allocation.currentStats },
+    p2: { ...PLAYER_CONFIGS[1].stats }
+  };
+  setupScreen.hidden = true;
+  battleScreen.hidden = false;
+  prepareAndRun(() => createSpectatorGame());
+}
+
+async function ensureAudio() {
+  if (!audio) return false;
+  try {
+    await audio.unlock();
+    startButton.textContent = "관전 시작";
+    return true;
+  } catch (error) {
+    progressLabel.textContent = `오디오 경고: ${error.message} · 다시 누르면 소리를 재시도합니다.`;
+    startButton.textContent = "소리 재시도 및 관전 시작";
+    return false;
+  }
+}
+
+async function prepareAndRun(action) {
+  startButton.disabled = true;
+  const originalLabel = startButton.textContent;
+  startButton.textContent = "사운드 준비 중…";
+  await ensureAudio();
+  startButton.disabled = false;
+  if (startButton.textContent === "사운드 준비 중…") startButton.textContent = originalLabel;
+  action();
 }
 
 function frame(timestamp) {
@@ -91,6 +220,8 @@ async function runBatch(count) {
     lastBatchResult = await activeRunner.run({
       count,
       baseSeed: seed(),
+      p1Stats: battleStats.p1,
+      p2Stats: battleStats.p2,
       onProgress: (done, total) => {
         const progress = done / total;
         progressBar.style.width = `${progress * 100}%`;
@@ -110,19 +241,16 @@ async function runBatch(count) {
   }
 }
 
-startButton.addEventListener("click", async () => {
-  try {
-    await audio.unlock();
-  } catch (error) {
-    progressLabel.textContent = `오디오 경고: ${error.message}`;
-  }
-  createSpectatorGame();
-});
+startButton.addEventListener("click", () => prepareAndRun(() => createSpectatorGame()));
 pauseButton.addEventListener("click", () => { paused = true; });
-resumeButton.addEventListener("click", () => { if (game?.status === "RUNNING") paused = false; });
-restartButton.addEventListener("click", createSpectatorGame);
+resumeButton.addEventListener("click", () => {
+  if (game?.status === "RUNNING") prepareAndRun(() => { paused = false; });
+});
+restartButton.addEventListener("click", () => prepareAndRun(() => createSpectatorGame()));
 document.addEventListener("keydown", event => {
-  if (event.key.toLowerCase() === "r" && !event.repeat) createSpectatorGame();
+  if (event.key.toLowerCase() === "r" && !event.repeat) {
+    prepareAndRun(() => createSpectatorGame());
+  }
 });
 document.querySelectorAll("[data-count]").forEach(button => {
   button.addEventListener("click", () => runBatch(Number(button.dataset.count)));
@@ -138,12 +266,27 @@ downloadButton.addEventListener("click", () => {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
 });
+statControls.addEventListener("click", event => {
+  const button = event.target.closest("[data-stat]");
+  if (!button) return;
+  allocation = adjustAllocation(allocation, button.dataset.stat, Number(button.dataset.delta));
+  renderSetup();
+});
+resetStatsButton.addEventListener("click", () => {
+  allocation = resetAllocation(allocation);
+  renderSetup();
+});
+beginBattleButton.addEventListener("click", beginBattle);
+backToSetupButton.addEventListener("click", showSetup);
 
 try {
   const assets = await loadAssets();
   renderer = new Renderer(canvas, assets);
   audio = new AudioManager(assets.sounds);
-  createSpectatorGame();
+  startButton.disabled = false;
+  beginBattleButton.disabled = false;
+  createSpectatorGame(false);
+  renderSetup();
   requestAnimationFrame(frame);
 } catch (error) {
   progressLabel.textContent = error.message;

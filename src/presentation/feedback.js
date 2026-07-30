@@ -14,3 +14,8 @@ export function shakeOffset(shake) {
   ][elapsed % 4];
   return { x: pattern[0] * strength, y: pattern[1] * strength };
 }
+
+export function announcementForEvent(event) {
+  if (event.type !== "ACTION_STARTED" || event.actionType !== "ROPE_DROP_KICK") return null;
+  return { actorId: event.actorId, text: "로프 드롭킥!", life: 60 };
+}

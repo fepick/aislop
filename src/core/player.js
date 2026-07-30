@@ -1,4 +1,5 @@
 import { DEFAULT_STATS, WORLD } from "../config/game-config.js";
+import { deriveStats, normalizeRawStats } from "./stat-rules.js";
 
 const actionCounters = () => ({
   KICK: 0,
@@ -22,15 +23,17 @@ const emptyMetrics = () => ({
   actionHits: actionCounters()
 });
 
-export function createPlayer(config, stats = DEFAULT_STATS) {
-  const statCopy = { ...DEFAULT_STATS, ...stats };
+export function createPlayer(config, stats = config.stats ?? DEFAULT_STATS) {
+  const rawStats = normalizeRawStats(stats);
+  const derivedStats = deriveStats(rawStats);
   return {
     id: config.id,
     name: config.name,
     color: config.color,
     aiProfileId: config.aiProfileId,
-    stats: statCopy,
-    health: statCopy.maxHealth,
+    rawStats,
+    derivedStats,
+    health: derivedStats.maxHealth,
     rage: 0,
     x: config.startX,
     previousX: config.startX,
@@ -40,6 +43,7 @@ export function createPlayer(config, stats = DEFAULT_STATS) {
     action: null,
     hitStunTicks: 0,
     counterPoseTicks: 0,
+    pendingCounter: null,
     decisionTicks: 1,
     cooldowns: { KICK: 0, PUSH: 0, DROP_KICK: 0, ROPE_DROP_KICK: 0 },
     metrics: emptyMetrics()
@@ -47,5 +51,5 @@ export function createPlayer(config, stats = DEFAULT_STATS) {
 }
 
 export function isBusy(player) {
-  return player.hitStunTicks > 0 || player.action !== null;
+  return player.hitStunTicks > 0 || player.action !== null || player.pendingCounter !== null;
 }

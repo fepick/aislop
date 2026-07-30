@@ -3,8 +3,17 @@ import { clamp } from "../core/combat-rules.js";
 export const hitGain = damage => clamp(0.25 + damage / 50, 0.25, 1);
 
 export class AudioManager {
-  constructor(sources) {
+  constructor(sources, {
+    contextFactory = () => {
+      const AudioContextClass = window.AudioContext ?? window.webkitAudioContext;
+      if (!AudioContextClass) throw new Error("이 브라우저는 Web Audio를 지원하지 않습니다.");
+      return new AudioContextClass();
+    },
+    fetcher = source => fetch(source)
+  } = {}) {
     this.sources = sources;
+    this.contextFactory = contextFactory;
+    this.fetcher = fetcher;
     this.context = null;
     this.buffers = {};
     this.loading = null;
@@ -13,16 +22,18 @@ export class AudioManager {
   }
 
   async unlock() {
-    const AudioContextClass = window.AudioContext ?? window.webkitAudioContext;
-    if (!AudioContextClass) throw new Error("이 브라우저는 Web Audio를 지원하지 않습니다.");
-    if (!this.context) this.context = new AudioContextClass();
+    if (!this.context) this.context = this.contextFactory();
     await this.context.resume();
     if (!this.loading) {
       this.loading = Promise.all(Object.entries(this.sources).map(async ([key, source]) => {
-        const response = await fetch(source);
+        const response = await this.fetcher(source);
         if (!response.ok) throw new Error(`사운드를 불러오지 못했습니다: ${source}`);
         this.buffers[key] = await this.context.decodeAudioData(await response.arrayBuffer());
-      }));
+      })).catch(error => {
+        this.loading = null;
+        this.buffers = {};
+        throw error;
+      });
     }
     await this.loading;
   }

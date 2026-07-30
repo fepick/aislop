@@ -1,6 +1,7 @@
-export const RULES_VERSION = "0.2.0";
+export const RULES_VERSION = "0.4.0";
 export const AI_PROFILE_VERSION = "0.2.0";
-export const RESULT_SCHEMA_VERSION = "0.2.0";
+export const RESULT_SCHEMA_VERSION = "0.3.0";
+export const STAT_RULES_VERSION = "1.0.0";
 export const RNG_VERSION = "mulberry32-1";
 
 export const LOGICAL_WIDTH = 1920;
@@ -11,20 +12,24 @@ export const MAX_STEPS_PER_RENDER = 5;
 
 export const DEFAULT_STATS = Object.freeze({
   attackSpeed: 10,
+  moveSpeed: 10,
   power: 10,
-  maxHealth: 100,
+  maxHealth: 10,
   defense: 10,
   sharpness: 10,
   luck: 10,
   insight: 10
 });
+export const STAT_BUDGET = 10;
+export const UNUSED_STATS = Object.freeze(["luck"]);
 
 export const COUNTER = Object.freeze({
   baseChance: 0.05,
   insightScale: 0.01,
   chanceMin: 0.05,
   chanceMax: 0.45,
-  poseTicks: 12
+  poseTicks: 12,
+  delayTicks: 18
 });
 
 export const WORLD = Object.freeze({
@@ -42,5 +47,23 @@ export const WORLD = Object.freeze({
 
 export const PLAYER_CONFIGS = Object.freeze([
   { id: "P1", name: "RED COMET", startX: 565, facing: 1, color: "#e62b2b", aiProfileId: "normal" },
-  { id: "P2", name: "BLUE BULL", startX: 1355, facing: -1, color: "#277be0", aiProfileId: "normal" }
+  {
+    id: "P2",
+    name: "BLUE BULL",
+    description: "강한 힘과 방어력을 앞세워 압박하는 느린 인파이터.",
+    startX: 1355,
+    facing: -1,
+    color: "#277be0",
+    aiProfileId: "normal",
+    stats: Object.freeze({
+      attackSpeed: 8,
+      moveSpeed: 8,
+      power: 12,
+      maxHealth: 10,
+      defense: 11,
+      sharpness: 10,
+      luck: 10,
+      insight: 10
+    })
+  }
 ]);

@@ -20,12 +20,7 @@ export const ACTIONS = Object.freeze({
 });
 
 export const COMBAT = Object.freeze({
-  criticalBaseChance: 0.05,
-  criticalSharpnessScale: 0.01,
-  criticalLuckScale: 0.003,
-  criticalChanceMin: 0.05,
-  criticalChanceMax: 0.45,
-  criticalMultiplier: 1.5,
+  criticalBaseChance: 0.12,
   powerScale: 0.6,
   defenseScale: 0.35,
   minimumDamage: 1,
