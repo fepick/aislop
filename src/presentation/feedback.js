@@ -16,6 +16,9 @@ export function shakeOffset(shake) {
 }
 
 export function announcementForEvent(event) {
+  if (event.type === "DODGE") {
+    return { actorId: event.actorId, text: "회피!", life: 42 };
+  }
   if (event.type !== "ACTION_STARTED" || event.actionType !== "ROPE_DROP_KICK") return null;
   return { actorId: event.actorId, text: "로프 드롭킥!", life: 60 };
 }

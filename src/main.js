@@ -1,9 +1,12 @@
 import {
+  AI_PROFILE_VERSION,
   DEFAULT_STATS,
   FIXED_DT,
   MAX_STEPS_PER_RENDER,
   PLAYER_CONFIGS,
+  RULES_VERSION,
   STAT_BUDGET,
+  STAT_RULES_VERSION,
   UNUSED_STATS
 } from "./config/game-config.js";
 import { Game } from "./core/game.js";
@@ -36,6 +39,9 @@ const resultSummary = document.querySelector("#result-summary");
 const singleResult = document.querySelector("#single-result");
 const setupScreen = document.querySelector("#setup-screen");
 const battleScreen = document.querySelector("#battle-screen");
+const experienceFrame = document.querySelector("#experience-frame");
+const battleOnlyElements = document.querySelectorAll(".battle-only");
+const activeSeedElement = document.querySelector("#active-seed");
 const statBudget = document.querySelector("#stat-budget");
 const statControls = document.querySelector("#stat-controls");
 const combatPreviewElement = document.querySelector("#combat-preview");
@@ -55,6 +61,11 @@ let previousTimestamp = 0;
 let accumulator = 0;
 let lastBatchResult = null;
 let activeRunner = null;
+let activeMatchConfig = null;
+let lastSpectatorResult = null;
+let pendingSingleResult = null;
+let viewTransitionTimer = null;
+let viewTransitionToken = 0;
 let allocation = createAllocation(DEFAULT_STATS, STAT_BUDGET);
 let battleStats = {
   p1: { ...allocation.currentStats },
@@ -66,13 +77,71 @@ beginBattleButton.disabled = true;
 
 const seed = () => normalizeSeed(seedInput.value);
 
-function createSpectatorGame(start = true) {
-  game = new Game({
+const cloneStats = stats => Object.freeze({ ...stats });
+
+function snapshotMatchConfig() {
+  return Object.freeze({
     seed: seed(),
-    mode: "spectator",
-    p1Stats: battleStats.p1,
-    p2Stats: battleStats.p2
+    p1Stats: cloneStats(battleStats.p1),
+    p2Stats: cloneStats(battleStats.p2),
+    rulesVersion: RULES_VERSION,
+    statRulesVersion: STAT_RULES_VERSION,
+    aiProfileVersion: AI_PROFILE_VERSION
   });
+}
+
+function setLayerAccessibility(layer, active) {
+  layer.setAttribute("aria-hidden", String(!active));
+  layer.inert = !active;
+}
+
+function setView(view, animate = true) {
+  const setup = view === "setup";
+  const target = setup ? setupScreen : battleScreen;
+  const other = setup ? battleScreen : setupScreen;
+  const token = ++viewTransitionToken;
+  if (viewTransitionTimer !== null) {
+    clearTimeout(viewTransitionTimer);
+    viewTransitionTimer = null;
+  }
+  experienceFrame.dataset.view = view;
+  battleOnlyElements.forEach(element => { element.hidden = setup; });
+  target.hidden = false;
+  setLayerAccessibility(target, true);
+  setLayerAccessibility(other, false);
+
+  const finish = () => {
+    if (token !== viewTransitionToken) return;
+    target.dataset.active = "true";
+    delete other.dataset.active;
+    other.hidden = true;
+    viewTransitionTimer = null;
+  };
+  if (!animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    finish();
+    return;
+  }
+
+  requestAnimationFrame(() => {
+    if (token !== viewTransitionToken) return;
+    target.dataset.active = "true";
+    delete other.dataset.active;
+    viewTransitionTimer = setTimeout(finish, 180);
+  });
+}
+
+function createSpectatorGame(start = true) {
+  activeMatchConfig = snapshotMatchConfig();
+  lastSpectatorResult = null;
+  pendingSingleResult = null;
+  game = new Game({
+    seed: activeMatchConfig.seed,
+    mode: "spectator",
+    p1Stats: activeMatchConfig.p1Stats,
+    p2Stats: activeMatchConfig.p2Stats
+  });
+  activeSeedElement.textContent = activeMatchConfig.seed;
+  seedInput.disabled = start;
   renderer?.reset();
   paused = !start;
   accumulator = 0;
@@ -105,7 +174,8 @@ function renderSetup() {
     ["치명타 배율", `${preview.criticalMultiplier.toFixed(2)}×`],
     ["체력", preview.maxHealth],
     ["방어 보정", `−${preview.defenseReduction.toFixed(2)}`],
-    ["카운터 확률", formatPercent(preview.counterChance)]
+    ["카운터 확률", formatPercent(preview.counterChance)],
+    ["회피 확률", formatPercent(preview.dodgeChance)]
   ];
   combatPreviewElement.innerHTML = previewItems.map(([label, value]) =>
     `<div class="preview-item"><span>${label}</span><strong>${value}</strong></div>`
@@ -128,8 +198,8 @@ function renderSetup() {
 function showSetup() {
   paused = true;
   activeRunner?.cancel();
-  battleScreen.hidden = true;
-  setupScreen.hidden = false;
+  seedInput.disabled = false;
+  setView("setup");
   renderSetup();
 }
 
@@ -138,8 +208,7 @@ function beginBattle() {
     p1: { ...allocation.currentStats },
     p2: { ...PLAYER_CONFIGS[1].stats }
   };
-  setupScreen.hidden = true;
-  battleScreen.hidden = false;
+  setView("battle");
   prepareAndRun(() => createSpectatorGame());
 }
 
@@ -182,6 +251,11 @@ function frame(timestamp) {
     }
     if (steps === MAX_STEPS_PER_RENDER) accumulator = Math.min(accumulator, FIXED_DT);
   }
+  if (game?.status === "FINISHED" && !lastSpectatorResult) {
+    lastSpectatorResult = game.getResult();
+    seedInput.disabled = false;
+    if (pendingSingleResult) showComparison(lastSpectatorResult, pendingSingleResult);
+  }
   if (game && renderer) renderer.render(game);
   requestAnimationFrame(frame);
 }
@@ -203,9 +277,71 @@ function renderBatch(result) {
     metric("P1 평균 피해", data.averageDamageDealtByP1.toFixed(1)),
     metric("P2 평균 피해", data.averageDamageDealtByP2.toFixed(1)),
     metric("P1 평균 카운터", data.averageCountersByP1.toFixed(2)),
-    metric("P2 평균 카운터", data.averageCountersByP2.toFixed(2))
+    metric("P2 평균 카운터", data.averageCountersByP2.toFixed(2)),
+    metric("P1 카운터 성공률", percent(data.p1CounterSuccessRate)),
+    metric("P2 카운터 성공률", percent(data.p2CounterSuccessRate)),
+    metric("P1 평균 회피", data.averageDodgesByP1.toFixed(2)),
+    metric("P2 평균 회피", data.averageDodgesByP2.toFixed(2)),
+    metric("P1 회피 성공률", percent(data.p1DodgeSuccessRate)),
+    metric("P2 회피 성공률", percent(data.p2DodgeSuccessRate))
   ].join("");
   singleResult.textContent = result.singleMatch ? JSON.stringify(result.singleMatch, null, 2) : "";
+}
+
+function canonicalResult({ mode, ...combatResult }) {
+  return combatResult;
+}
+
+function firstDifference(left, right, path = "result") {
+  if (Object.is(left, right)) return null;
+  if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) {
+    return `${path}: ${JSON.stringify(left)} ≠ ${JSON.stringify(right)}`;
+  }
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  for (const key of keys) {
+    const difference = firstDifference(left[key], right[key], `${path}.${key}`);
+    if (difference) return difference;
+  }
+  return null;
+}
+
+function showComparison(spectatorResult, simulationResult) {
+  const difference = firstDifference(
+    canonicalResult(spectatorResult),
+    canonicalResult(simulationResult)
+  );
+  if (!difference) {
+    progressLabel.textContent = `관전 결과와 일치 · seed ${activeMatchConfig.seed}`;
+    return;
+  }
+  progressLabel.textContent =
+    `관전 결과 불일치 · seed ${activeMatchConfig.seed} · rules ${activeMatchConfig.rulesVersion}`
+    + ` · stats ${JSON.stringify({ p1: activeMatchConfig.p1Stats, p2: activeMatchConfig.p2Stats })}`
+    + ` · ${difference}`;
+}
+
+function renderSingleCounterMetrics(match) {
+  const successRate = player => player.countersAttempted > 0
+    ? player.countersSucceeded / player.countersAttempted
+    : 0;
+  resultSummary.innerHTML = [
+    metric("P1 카운터 시도", match.p1.countersAttempted),
+    metric("P1 카운터 성공", match.p1.countersSucceeded),
+    metric("P1 카운터 성공률", `${(successRate(match.p1) * 100).toFixed(1)}%`),
+    metric("P2 카운터 시도", match.p2.countersAttempted),
+    metric("P2 카운터 성공", match.p2.countersSucceeded),
+    metric("P2 카운터 성공률", `${(successRate(match.p2) * 100).toFixed(1)}%`),
+    metric("P1 회피 시도", match.p1.dodgesAttempted),
+    metric("P1 회피 성공", match.p1.dodgesSucceeded),
+    metric("P1 회피 성공률", `${(
+      match.p1.dodgesAttempted > 0 ? match.p1.dodgesSucceeded / match.p1.dodgesAttempted * 100 : 0
+    ).toFixed(1)}%`),
+    metric("P2 회피 시도", match.p2.dodgesAttempted),
+    metric("P2 회피 성공", match.p2.dodgesSucceeded),
+    metric("P2 회피 성공률", `${(
+      match.p2.dodgesAttempted > 0 ? match.p2.dodgesSucceeded / match.p2.dodgesAttempted * 100 : 0
+    ).toFixed(1)}%`)
+  ].join("");
 }
 
 async function runBatch(count) {
@@ -215,13 +351,16 @@ async function runBatch(count) {
   progressBar.style.width = "0%";
   progressLabel.textContent = `${count}회 시뮬레이션 준비 중…`;
   activeRunner = new BatchRunner();
+  const batchConfig = count === 1 && activeMatchConfig
+    ? activeMatchConfig
+    : snapshotMatchConfig();
   const started = performance.now();
   try {
     lastBatchResult = await activeRunner.run({
       count,
-      baseSeed: seed(),
-      p1Stats: battleStats.p1,
-      p2Stats: battleStats.p2,
+      baseSeed: batchConfig.seed,
+      p1Stats: batchConfig.p1Stats,
+      p2Stats: batchConfig.p2Stats,
       onProgress: (done, total) => {
         const progress = done / total;
         progressBar.style.width = `${progress * 100}%`;
@@ -229,8 +368,17 @@ async function runBatch(count) {
       }
     });
     renderBatch(lastBatchResult);
+    if (count === 1) {
+      pendingSingleResult = lastBatchResult.singleMatch;
+      renderSingleCounterMetrics(pendingSingleResult);
+    }
     const elapsed = ((performance.now() - started) / 1000).toFixed(2);
     progressLabel.textContent = `${lastBatchResult.status} · ${lastBatchResult.completedMatches}경기 · ${elapsed}초`;
+    if (count === 1 && lastSpectatorResult) {
+      showComparison(lastSpectatorResult, pendingSingleResult);
+    } else if (count === 1) {
+      progressLabel.textContent += " · 관전 종료 후 자동 비교";
+    }
     downloadButton.disabled = false;
   } catch (error) {
     progressLabel.textContent = `실패: ${error.message}`;
@@ -248,7 +396,7 @@ resumeButton.addEventListener("click", () => {
 });
 restartButton.addEventListener("click", () => prepareAndRun(() => createSpectatorGame()));
 document.addEventListener("keydown", event => {
-  if (event.key.toLowerCase() === "r" && !event.repeat) {
+  if (experienceFrame.dataset.view === "battle" && event.key.toLowerCase() === "r" && !event.repeat) {
     prepareAndRun(() => createSpectatorGame());
   }
 });
@@ -286,6 +434,7 @@ try {
   startButton.disabled = false;
   beginBattleButton.disabled = false;
   createSpectatorGame(false);
+  setView("setup", false);
   renderSetup();
   requestAnimationFrame(frame);
 } catch (error) {

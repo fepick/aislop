@@ -48,6 +48,10 @@ export function aggregateResults(results) {
     averageCountersByP2: ratio(sum("p2", "countersSucceeded"), total),
     p1CounterSuccessRate: ratio(sum("p1", "countersSucceeded"), sum("p1", "countersAttempted")),
     p2CounterSuccessRate: ratio(sum("p2", "countersSucceeded"), sum("p2", "countersAttempted")),
+    averageDodgesByP1: ratio(sum("p1", "dodgesSucceeded"), total),
+    averageDodgesByP2: ratio(sum("p2", "dodgesSucceeded"), total),
+    p1DodgeSuccessRate: ratio(sum("p1", "dodgesSucceeded"), sum("p1", "dodgesAttempted")),
+    p2DodgeSuccessRate: ratio(sum("p2", "dodgesSucceeded"), sum("p2", "dodgesAttempted")),
     p1AttackHitRate: ratio(sum("p1", "attacksHit"), sum("p1", "attacksAttempted")),
     p2AttackHitRate: ratio(sum("p2", "attacksHit"), sum("p2", "attacksAttempted")),
     actionMetrics: {

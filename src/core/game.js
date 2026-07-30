@@ -54,6 +54,10 @@ export class Game {
       P1: new SeededRng(mixSeed(this.seed, 505)),
       P2: new SeededRng(mixSeed(this.seed, 606))
     };
+    this.dodgeRng = {
+      P1: new SeededRng(mixSeed(this.seed, 707)),
+      P2: new SeededRng(mixSeed(this.seed, 808))
+    };
     this.players = [
       createPlayer(PLAYER_CONFIGS[0], p1Stats),
       createPlayer(PLAYER_CONFIGS[1], p2Stats)
@@ -207,7 +211,7 @@ export class Game {
         hits.push(buildHit(attacker, defender, action.type, this.combatRng[attacker.id]));
       }
     }
-    applyHits(hits, (...args) => this.emit(...args), this.counterRng);
+    applyHits(hits, (...args) => this.emit(...args), this.counterRng, this.dodgeRng);
 
     this.tick += 1;
     if (this.finishIfNeeded()) {

@@ -1,5 +1,5 @@
 import { ACTIONS, COMBAT } from "../config/combat-config.js";
-import { COUNTER, DEFAULT_STATS, STAT_BUDGET, UNUSED_STATS } from "../config/game-config.js";
+import { COUNTER, DEFAULT_STATS, DODGE, STAT_BUDGET, UNUSED_STATS } from "../config/game-config.js";
 
 export const STAT_KEYS = Object.freeze([
   "attackSpeed", "moveSpeed", "power", "maxHealth",
@@ -32,6 +32,11 @@ export function deriveStats(rawStats) {
     maxHealth: 50 + raw.maxHealth * 5,
     attackTimingScale: clamp(1 - 0.035 * (raw.attackSpeed - 10), 0.65, 1.35),
     moveScale: clamp(1 + 0.04 * (raw.moveSpeed - 10), 0.6, 1.6),
+    dodgeChance: clamp(
+      (raw.moveSpeed - DODGE.pointsThreshold) * DODGE.chancePerPoint,
+      0,
+      DODGE.chanceMax
+    ),
     defenseReduction: raw.defense * COMBAT.defenseScale,
     criticalChance: COMBAT.criticalBaseChance,
     criticalMultiplier: clamp(1.25 + raw.sharpness * 0.025, 1.25, 2),
@@ -67,12 +72,14 @@ export function combatPreview(attackerStats, defenderStats) {
     criticalMultiplier: derived.criticalMultiplier,
     maxHealth: derived.maxHealth,
     defenseReduction: derived.defenseReduction,
-    counterChance: derived.counterChance
+    counterChance: derived.counterChance,
+    dodgeChance: derived.dodgeChance
   };
 }
 
 export function combatPower(stats) {
   const raw = normalizeRawStats(stats);
+  const derived = deriveStats(raw);
   return Math.round(
     1000
     + (raw.attackSpeed - 10) * 25
@@ -82,6 +89,7 @@ export function combatPower(stats) {
     + (raw.defense - 10) * 20
     + (raw.sharpness - 10) * 5
     + (raw.insight - 10) * 12
+    + derived.dodgeChance * 800
   );
 }
 
