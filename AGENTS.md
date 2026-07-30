@@ -14,6 +14,12 @@
 - Use a seed-based RNG for reproducible simulation results.
 - Record `rulesVersion` and `aiProfileVersion` in simulation results.
 
+## TODO Workflow
+
+- Before planning or implementing, read `docs/todo.md` in read-only mode.
+- Follow its priority and approval rules.
+- Never edit `docs/todo.md` unless the user explicitly asks for that file to be changed.
+
 ## Simulation
 
 - Use a fixed simulation timestep of 1 / 60 seconds.

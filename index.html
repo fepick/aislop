@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>AI Slop Wrestling Simulator</title>
+    <link rel="stylesheet" href="./style.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="title-row">
+        <div>
+          <p class="eyebrow">DETERMINISTIC AUTO BATTLE</p>
+          <h1>AI SLOP WRESTLING</h1>
+        </div>
+        <span class="version">RULES 0.4.0</span>
+      </header>
+
+      <section id="setup-screen" class="setup-screen" aria-label="선수 스테이터스 설정">
+        <div class="setup-column">
+          <section class="setup-card stat-card">
+            <div class="budget-box">
+              <span>STAT BUDGET</span>
+              <strong id="stat-budget">10</strong>
+            </div>
+            <div class="fighter-stat-header">
+              <div class="setup-sprite red-sprite" aria-label="RED COMET"></div>
+              <div>
+                <h2 class="red-text">RED COMET</h2>
+                <p>CURRENT STATS</p>
+              </div>
+            </div>
+            <div id="stat-controls" class="stat-controls"></div>
+            <p class="setup-note">기본 스테이터스보다 낮출 수 없습니다.</p>
+          </section>
+
+          <section class="setup-card preview-card">
+            <h2>COMBAT PREVIEW</h2>
+            <div id="combat-preview" class="preview-grid"></div>
+          </section>
+        </div>
+
+        <div class="setup-column">
+          <section class="setup-card opponent-card">
+            <h2>NEXT OPPONENT</h2>
+            <div class="opponent-profile">
+              <div class="setup-sprite blue-sprite" aria-label="BLUE BULL"></div>
+              <div>
+                <h3 class="blue-text">BLUE BULL</h3>
+                <p id="opponent-description"></p>
+              </div>
+            </div>
+            <div id="opponent-stats" class="opponent-stats"></div>
+          </section>
+
+          <section class="setup-card power-card">
+            <h2>TOTAL FIGHT POWER</h2>
+            <div class="power-versus">
+              <div><span class="red-text">RED COMET</span><strong id="player-power">1000</strong></div>
+              <b>VS</b>
+              <div><span class="blue-text">BLUE BULL</span><strong id="opponent-power">1000</strong></div>
+            </div>
+            <p class="power-note">전투력은 비교용 지표이며 승률을 보장하지 않습니다.</p>
+          </section>
+
+          <div class="setup-actions">
+            <button id="reset-stats-button" class="danger">초기화</button>
+            <button id="begin-battle-button" class="primary">전투 시작 ▶</button>
+          </div>
+        </div>
+      </section>
+
+      <div id="battle-screen" hidden>
+        <section class="game-stage" aria-label="레슬링 관전 화면">
+          <canvas id="game-canvas" width="1920" height="1080"></canvas>
+          <div class="portrait-notice">가로 화면에서 플레이하세요</div>
+        </section>
+
+        <section class="control-panel">
+          <div class="seed-control">
+            <label for="seed-input">MATCH SEED</label>
+            <input id="seed-input" type="number" value="20260728" step="1">
+          </div>
+          <div class="button-row">
+            <button id="back-to-setup-button">설정으로 돌아가기</button>
+            <button id="start-button" class="primary">관전 시작</button>
+            <button id="pause-button">일시정지</button>
+            <button id="resume-button">재개</button>
+            <button id="restart-button">재시작 (R)</button>
+          </div>
+        </section>
+
+        <section class="simulation-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">HEADLESS LAB</p>
+              <h2>결과 전용 시뮬레이션</h2>
+            </div>
+            <button id="download-button" disabled>JSON 다운로드</button>
+          </div>
+          <div class="button-row">
+            <button data-count="1">결과만 1회</button>
+            <button data-count="100">100회 실행</button>
+            <button data-count="1000">1,000회 실행</button>
+            <button id="cancel-button" class="danger" disabled>취소</button>
+          </div>
+          <div class="progress-track" aria-label="시뮬레이션 진행률">
+            <div id="progress-bar"></div>
+          </div>
+          <p id="progress-label" class="status-line">실행할 횟수를 선택하세요.</p>
+          <div id="result-summary" class="result-grid"></div>
+          <pre id="single-result" class="result-json" aria-live="polite"></pre>
+        </section>
+      </div>
+    </main>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
