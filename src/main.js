@@ -1,442 +1,416 @@
 import {
-  AI_PROFILE_VERSION,
-  DEFAULT_STATS,
-  FIXED_DT,
-  MAX_STEPS_PER_RENDER,
-  PLAYER_CONFIGS,
-  RULES_VERSION,
-  STAT_BUDGET,
-  STAT_RULES_VERSION,
-  UNUSED_STATS
-} from "./config/game-config.js";
+  CAMPAIGN_SAVE_KEY,
+  EQUIPMENT,
+  STAGES
+} from "./config/campaign-config.js";
+import { FIXED_DT, MAX_STEPS_PER_RENDER, UNUSED_STATS } from "./config/game-config.js";
+import {
+  availableRewards,
+  claimReward,
+  createRun,
+  effectiveStats,
+  equipmentFor,
+  recordRound,
+  restoreRun,
+  roundConfig,
+  roundScore,
+  stageFor
+} from "./campaign/campaign.js";
 import { Game } from "./core/game.js";
-import { normalizeSeed } from "./core/rng.js";
 import {
   STAT_KEYS,
   STAT_LABELS,
   adjustAllocation,
   combatPower,
   combatPreview,
-  createAllocation,
+  normalizeRawStats,
   resetAllocation
 } from "./core/stat-rules.js";
 import { loadAssets } from "./presentation/asset-loader.js";
 import { AudioManager } from "./presentation/audio-manager.js";
+import { connectLab } from "./presentation/lab.js";
 import { Renderer } from "./presentation/renderer.js";
-import { BatchRunner } from "./simulation/simulation-runner.js";
 
-const canvas = document.querySelector("#game-canvas");
-const seedInput = document.querySelector("#seed-input");
-const startButton = document.querySelector("#start-button");
-const pauseButton = document.querySelector("#pause-button");
-const resumeButton = document.querySelector("#resume-button");
-const restartButton = document.querySelector("#restart-button");
-const cancelButton = document.querySelector("#cancel-button");
-const downloadButton = document.querySelector("#download-button");
-const progressBar = document.querySelector("#progress-bar");
-const progressLabel = document.querySelector("#progress-label");
-const resultSummary = document.querySelector("#result-summary");
-const singleResult = document.querySelector("#single-result");
-const setupScreen = document.querySelector("#setup-screen");
-const battleScreen = document.querySelector("#battle-screen");
-const experienceFrame = document.querySelector("#experience-frame");
-const battleOnlyElements = document.querySelectorAll(".battle-only");
-const activeSeedElement = document.querySelector("#active-seed");
-const statBudget = document.querySelector("#stat-budget");
-const statControls = document.querySelector("#stat-controls");
-const combatPreviewElement = document.querySelector("#combat-preview");
-const opponentDescription = document.querySelector("#opponent-description");
-const opponentStatsElement = document.querySelector("#opponent-stats");
-const playerPower = document.querySelector("#player-power");
-const opponentPower = document.querySelector("#opponent-power");
-const resetStatsButton = document.querySelector("#reset-stats-button");
-const beginBattleButton = document.querySelector("#begin-battle-button");
-const backToSetupButton = document.querySelector("#back-to-setup-button");
+const select = id => document.getElementById(id);
+const frameElement = select("experience-frame");
+const screens = Object.fromEntries(["setup", "battle", "reward", "ending"]
+  .map(view => [view, select(`${view}-screen`)]));
+const beginButton = select("begin-battle-button");
+const resetButton = select("reset-stats-button");
+const statControls = select("stat-controls");
+const loadoutList = select("loadout-list");
+const rewardList = select("reward-list");
+const resultOverlay = select("battle-overlay");
+const resultAction = select("result-action");
+const battleControls = select("battle-controls");
+const pauseButton = select("pause-button");
+const speedButton = select("speed-button");
+const restartButton = select("restart-button");
+const skipButton = select("skip-button");
+const exitExhibitionButton = select("exit-exhibition-button");
+const soundButton = select("sound-button");
+const bootError = select("boot-error");
 
+let storageFailed = false;
+let run = restoreRun(readSave(), newSeed());
 let game;
 let renderer;
 let audio;
-let paused = true;
-let previousTimestamp = 0;
+let match;
+let roundFinished = false;
+let paused = false;
+let speed = 1;
+let previousTimestamp = null;
 let accumulator = 0;
-let lastBatchResult = null;
-let activeRunner = null;
-let activeMatchConfig = null;
-let lastSpectatorResult = null;
-let pendingSingleResult = null;
-let viewTransitionTimer = null;
-let viewTransitionToken = 0;
-let allocation = createAllocation(DEFAULT_STATS, STAT_BUDGET);
-let battleStats = {
-  p1: { ...allocation.currentStats },
-  p2: { ...PLAYER_CONFIGS[1].stats }
-};
 
-startButton.disabled = true;
-beginBattleButton.disabled = true;
-
-const seed = () => normalizeSeed(seedInput.value);
-
-const cloneStats = stats => Object.freeze({ ...stats });
-
-function snapshotMatchConfig() {
-  return Object.freeze({
-    seed: seed(),
-    p1Stats: cloneStats(battleStats.p1),
-    p2Stats: cloneStats(battleStats.p2),
-    rulesVersion: RULES_VERSION,
-    statRulesVersion: STAT_RULES_VERSION,
-    aiProfileVersion: AI_PROFILE_VERSION
-  });
-}
-
-function setLayerAccessibility(layer, active) {
-  layer.setAttribute("aria-hidden", String(!active));
-  layer.inert = !active;
-}
-
-function setView(view, animate = true) {
-  const setup = view === "setup";
-  const target = setup ? setupScreen : battleScreen;
-  const other = setup ? battleScreen : setupScreen;
-  const token = ++viewTransitionToken;
-  if (viewTransitionTimer !== null) {
-    clearTimeout(viewTransitionTimer);
-    viewTransitionTimer = null;
+const lab = connectLab({
+  getStats: () => run.allocation.currentStats,
+  startExhibition: config => {
+    if (!renderer || match) return false;
+    startMatch({ config, stage: STAGES[0], exhibition: true });
+    return true;
   }
-  experienceFrame.dataset.view = view;
-  battleOnlyElements.forEach(element => { element.hidden = setup; });
-  target.hidden = false;
-  setLayerAccessibility(target, true);
-  setLayerAccessibility(other, false);
+});
 
-  const finish = () => {
-    if (token !== viewTransitionToken) return;
-    target.dataset.active = "true";
-    delete other.dataset.active;
-    other.hidden = true;
-    viewTransitionTimer = null;
-  };
-  if (!animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    finish();
-    return;
+const statRows = STAT_KEYS.filter(key => !UNUSED_STATS.includes(key)).map(key => {
+  const label = STAT_LABELS[key];
+  const row = document.createElement("div");
+  row.className = "stat-row";
+  row.innerHTML = `
+    <span class="stat-label">${label}</span>
+    <button data-stat="${key}" data-delta="-1" aria-label="${label} 감소">−</button>
+    <strong class="stat-value"></strong>
+    <button data-stat="${key}" data-delta="1" aria-label="${label} 증가">+</button>`;
+  statControls.append(row);
+  const [decrease, increase] = row.querySelectorAll("button");
+  return { key, decrease, increase, value: row.querySelector(".stat-value") };
+});
+
+function newSeed() {
+  return crypto.getRandomValues(new Uint32Array(1))[0];
+}
+
+function readSave() {
+  try {
+    return localStorage.getItem(CAMPAIGN_SAVE_KEY);
+  } catch {
+    storageFailed = true;
+    return null;
+  }
+}
+
+function saveRun() {
+  try {
+    localStorage.setItem(CAMPAIGN_SAVE_KEY, JSON.stringify(run));
+    storageFailed = false;
+  } catch {
+    storageFailed = true;
+  }
+  renderSeed();
+}
+
+function renderSeed() {
+  select("run-seed").textContent = `시드 ${run.seed}${storageFailed ? " · 자동 저장 불가" : ""}`;
+}
+
+function setView(view) {
+  frameElement.dataset.view = view;
+  for (const [name, screen] of Object.entries(screens)) {
+    screen.hidden = name !== view;
+    screen.inert = screen.hidden;
+  }
+  battleControls.hidden = view !== "battle";
+}
+
+function renderPath() {
+  select("stage-path").innerHTML = STAGES.map((stage, index) => {
+    const cleared = index < run.stage || (index === run.stage && ["reward", "champion"].includes(run.status));
+    return `
+      <li class="stage-step${cleared ? " cleared" : ""}" ${index === run.stage ? 'aria-current="step"' : ""}>
+        <span class="step-index" ${cleared ? 'aria-label="승리"' : 'aria-hidden="true"'}>${cleared ? "✓" : index + 1}</span>
+        <div><strong>${stage.venue}</strong><small>${stage.name}</small></div>
+      </li>`;
+  }).join("");
+}
+
+function renderTraining() {
+  const { allocation, status } = run;
+  const allowed = status === "ready";
+  const stats = effectiveStats(run);
+  select("stat-budget").textContent = allocation.remainingBudget;
+  resetButton.disabled = !allowed || allocation.remainingBudget === allocation.totalBudget;
+  for (const { key, value, decrease, increase } of statRows) {
+    const current = allocation.currentStats[key];
+    value.textContent = stats[key];
+    value.classList.toggle("boosted", stats[key] !== current);
+    decrease.disabled = !allowed || current <= allocation.baseStats[key];
+    increase.disabled = !allowed || allocation.remainingBudget === 0;
   }
 
-  requestAnimationFrame(() => {
-    if (token !== viewTransitionToken) return;
-    target.dataset.active = "true";
-    delete other.dataset.active;
-    viewTransitionTimer = setTimeout(finish, 180);
-  });
+  const preview = combatPreview(stats, stageFor(run).stats);
+  const percent = rate => `${(rate * 100).toFixed(1).replace(/\.0$/, "")}%`;
+  select("preview-line").textContent = allowed
+    ? `체력 ${preview.maxHealth} · 전투력 ${combatPower(stats)} · 회피 ${percent(preview.dodgeChance)} · 카운터 ${percent(preview.counterChance)}`
+    : "시리즈 진행 중에는 훈련과 장비가 고정됩니다.";
 }
 
-function createSpectatorGame(start = true) {
-  activeMatchConfig = snapshotMatchConfig();
-  lastSpectatorResult = null;
-  pendingSingleResult = null;
-  game = new Game({
-    seed: activeMatchConfig.seed,
-    mode: "spectator",
-    p1Stats: activeMatchConfig.p1Stats,
-    p2Stats: activeMatchConfig.p2Stats
-  });
-  activeSeedElement.textContent = activeMatchConfig.seed;
-  seedInput.disabled = start;
-  renderer?.reset();
-  paused = !start;
-  accumulator = 0;
-  previousTimestamp = 0;
+function renderLoadout() {
+  select("equipment-count").textContent = `${run.owned.length}/${EQUIPMENT.length} 보유`;
+  const equipped = equipmentFor(run);
+  select("equipment-detail").textContent = equipped?.description ?? "";
+  const items = EQUIPMENT.filter(item => run.owned.includes(item.id));
+  loadoutList.innerHTML = items.length ? items.map(item => `
+    <button class="quiet item-slot" data-equip="${item.id}" aria-pressed="${run.equipped === item.id}"
+      ${run.status === "ready" ? "" : "disabled"}>${item.name}</button>`).join("")
+    : '<p class="loadout-empty">첫 스테이지를 이기면 장비를 얻습니다.</p>';
 }
-
-const formatPercent = value => `${(value * 100).toFixed(0)}%`;
 
 function renderSetup() {
-  statBudget.textContent = allocation.remainingBudget;
-  statControls.innerHTML = STAT_KEYS.map(key => {
-    const unused = UNUSED_STATS.includes(key);
-    const canDecrease = !unused && allocation.currentStats[key] > allocation.baseStats[key];
-    const canIncrease = !unused && allocation.remainingBudget > 0;
-    return `
-      <div class="stat-row${unused ? " stat-unused" : ""}">
-        <span>${STAT_LABELS[key]}${unused ? "<small>현재 버전 미적용</small>" : ""}</span>
-        <button class="decrease" data-stat="${key}" data-delta="-1" ${canDecrease ? "" : "disabled"} aria-label="${STAT_LABELS[key]} 감소">−</button>
-        <strong class="stat-value">${allocation.currentStats[key]}</strong>
-        <button class="increase" data-stat="${key}" data-delta="1" ${canIncrease ? "" : "disabled"} aria-label="${STAT_LABELS[key]} 증가">＋</button>
-      </div>
-    `;
-  }).join("");
-
-  const preview = combatPreview(allocation.currentStats, PLAYER_CONFIGS[1].stats);
-  const previewItems = [
-    ["최소 데미지", preview.minDamage],
-    ["최대 데미지", preview.maxDamage],
-    ["치명타 확률", formatPercent(preview.criticalChance)],
-    ["치명타 배율", `${preview.criticalMultiplier.toFixed(2)}×`],
-    ["체력", preview.maxHealth],
-    ["방어 보정", `−${preview.defenseReduction.toFixed(2)}`],
-    ["카운터 확률", formatPercent(preview.counterChance)],
-    ["회피 확률", formatPercent(preview.dodgeChance)]
-  ];
-  combatPreviewElement.innerHTML = previewItems.map(([label, value]) =>
-    `<div class="preview-item"><span>${label}</span><strong>${value}</strong></div>`
+  const stage = stageFor(run);
+  select("stage-kicker").textContent = `${run.stage + 1} / ${STAGES.length} · ${stage.venue}`;
+  select("stage-intro").textContent = stage.intro;
+  const art = select("opponent-art");
+  art.src = stage.art;
+  select("opponent-name").textContent = stage.name;
+  select("opponent-title").textContent = stage.title;
+  const stats = normalizeRawStats(stage.stats);
+  select("opponent-power").textContent = `전투력 ${combatPower(stats)}`;
+  select("scouting-copy").textContent = stage.scouting;
+  select("opponent-stats").innerHTML = ["power", "maxHealth", "attackSpeed", "moveSpeed"].map(key =>
+    `<div class="opponent-stat"><span>${STAT_LABELS[key]}</span><strong>${stats[key]}</strong></div>`
   ).join("");
-
-  opponentDescription.textContent = PLAYER_CONFIGS[1].description;
-  const opponent = PLAYER_CONFIGS[1].stats;
-  opponentStatsElement.innerHTML = [
-    ["POWER", opponent.power],
-    ["DEFENSE", opponent.defense],
-    ["SPEED", opponent.attackSpeed],
-    ["MOVE", opponent.moveSpeed]
-  ].map(([label, value]) =>
-    `<div class="opponent-stat"><span>${label}</span><strong>${value}</strong></div>`
-  ).join("");
-  playerPower.textContent = combatPower(allocation.currentStats);
-  opponentPower.textContent = combatPower(opponent);
+  beginButton.firstElementChild.textContent = run.rounds.length ? `${run.rounds.length + 1}라운드 이어서` : "경기 시작";
+  renderTraining();
+  renderLoadout();
 }
 
-function showSetup() {
-  paused = true;
-  activeRunner?.cancel();
-  seedInput.disabled = false;
-  setView("setup");
-  renderSetup();
-}
-
-function beginBattle() {
-  battleStats = {
-    p1: { ...allocation.currentStats },
-    p2: { ...PLAYER_CONFIGS[1].stats }
-  };
-  setView("battle");
-  prepareAndRun(() => createSpectatorGame());
-}
-
-async function ensureAudio() {
-  if (!audio) return false;
-  try {
-    await audio.unlock();
-    startButton.textContent = "관전 시작";
-    return true;
-  } catch (error) {
-    progressLabel.textContent = `오디오 경고: ${error.message} · 다시 누르면 소리를 재시도합니다.`;
-    startButton.textContent = "소리 재시도 및 관전 시작";
-    return false;
+function showCampaign(focus = false) {
+  match = null;
+  lab.setMatchActive(!renderer);
+  renderPath();
+  renderSeed();
+  if (run.status === "reward") {
+    rewardList.innerHTML = availableRewards(run).map(item => `
+      <button class="reward-option" data-reward="${item.id}">
+        <span class="rarity">${item.rarity}</span>
+        <strong>${item.name}</strong>
+        <small>${item.description}</small>
+      </button>`).join("");
+    setView("reward");
+    if (focus) rewardList.querySelector("button").focus();
+    return;
   }
+  if (["champion", "eliminated"].includes(run.status)) {
+    const won = run.status === "champion";
+    select("ending-kicker").textContent = won ? "토너먼트 우승" : `${stageFor(run).venue} · 탈락`;
+    select("ending-title").textContent = won ? "새로운 챔피언, 레드 코멧" : "다시 링 위로";
+    select("ending-copy").textContent = won
+      ? "아이언 킹을 꺾고 벨트와 상금을 거머쥐었다. 지하 체육관의 불이 다시 켜졌다."
+      : "이번 도전은 여기까지. 새 토너먼트에서 다른 훈련과 장비 조합으로 다시 도전할 수 있습니다.";
+    setView("ending");
+    if (focus) select("new-run-button").focus();
+    return;
+  }
+  renderSetup();
+  setView("setup");
+  if (focus) beginButton.focus();
 }
 
-async function prepareAndRun(action) {
-  startButton.disabled = true;
-  const originalLabel = startButton.textContent;
-  startButton.textContent = "사운드 준비 중…";
-  await ensureAudio();
-  startButton.disabled = false;
-  if (startButton.textContent === "사운드 준비 중…") startButton.textContent = originalLabel;
-  action();
+function updateBattleControls() {
+  select("battle-stage").textContent = match.exhibition ? "전투 실험실" : match.stage.venue;
+  const { P1, P2 } = roundScore(run.rounds);
+  select("battle-score").textContent = match.exhibition
+    ? `단일 경기 · 시드 ${match.config.seed}`
+    : `${match.round}라운드 · RED COMET ${P1}–${P2} ${match.stage.name} · 2승제`;
+  pauseButton.disabled = roundFinished;
+  pauseButton.textContent = paused ? "재개" : "일시정지";
+  pauseButton.setAttribute("aria-pressed", String(paused));
+  speedButton.disabled = roundFinished;
+  speedButton.textContent = `${speed}×`;
+  speedButton.setAttribute("aria-pressed", String(speed === 2));
+  restartButton.disabled = roundFinished;
+  skipButton.disabled = roundFinished;
+  exitExhibitionButton.hidden = !match.exhibition || roundFinished;
 }
 
-function frame(timestamp) {
-  if (!previousTimestamp) previousTimestamp = timestamp;
-  const elapsed = Math.min((timestamp - previousTimestamp) / 1000, 0.25);
+function playStartBell(currentGame) {
+  if (!audio.enabled) return;
+  audio.unlock().then(() => {
+    soundButton.title = "";
+    if (game === currentGame && !roundFinished && match) audio.play("bell", 0.45);
+  }).catch(() => {
+    soundButton.title = "사운드를 다시 켜거나 다음 경기에서 재시도할 수 있습니다.";
+  });
+}
+
+function renderMatch() {
+  renderer.render(game, match.stage.customSprite ? match.stage.id : undefined);
+}
+
+function startMatch(options) {
+  match = options;
+  game = new Game({ ...match.config, mode: "spectator" });
+  renderer.reset();
+  roundFinished = false;
+  paused = false;
+  accumulator = 0;
+  previousTimestamp = null;
+  resultOverlay.hidden = true;
+  lab.setMatchActive(true, match.exhibition);
+  setView("battle");
+  updateBattleControls();
+  renderMatch();
+  pauseButton.focus();
+  frameElement.scrollIntoView({ block: "nearest" });
+  playStartBell(game);
+}
+
+function startRound() {
+  const stage = stageFor(run);
+  startMatch({ config: roundConfig(run), stage, round: run.rounds.length + 1, exhibition: false });
+}
+
+function finishRound() {
+  if (roundFinished) return;
+  roundFinished = true;
+  const result = game.getResult();
+  const winner = result.winner === "P1" ? "RED COMET" : match.stage.name;
+  const method = { KO: "KO", DRAW: "무승부", TIMEOUT: "시간 종료 판정" }[result.resultType];
+  const p1Health = Math.max(0, Math.round(result.p1.finalHealth));
+  const p2Health = Math.max(0, Math.round(result.p2.finalHealth));
+  select("result-kicker").textContent = match.exhibition ? "실험실 · 단일 경기" : `${match.round}라운드 종료`;
+  select("result-title").textContent = result.winner === "DRAW" ? "무승부" : `${winner} 승리`;
+  select("result-copy").textContent = `${method} · 남은 체력 ${p1Health} / ${p2Health}`;
+
+  if (match.exhibition) {
+    lab.finishExhibition(result);
+    resultAction.textContent = "캠페인으로";
+  } else {
+    run = recordRound(run, result.winner);
+    saveRun();
+    renderPath();
+    resultAction.textContent = {
+      between: "다음 라운드", reward: "장비 보상 선택", champion: "챔피언 등극", eliminated: "토너먼트 결과"
+    }[run.status];
+  }
+  const focusWasInBattle = screens.battle.contains(document.activeElement)
+    || battleControls.contains(document.activeElement);
+  updateBattleControls();
+  resultOverlay.hidden = false;
+  if (focusWasInBattle) resultAction.focus();
+  audio.play("bell", 0.5);
+}
+
+function renderFrame(timestamp) {
+  const elapsed = previousTimestamp === null ? 0 : Math.min((timestamp - previousTimestamp) / 1000, 0.25);
   previousTimestamp = timestamp;
-  if (!paused && game?.status === "RUNNING") {
-    accumulator += elapsed;
+  if (match && !roundFinished && !paused) {
+    accumulator += elapsed * speed;
     let steps = 0;
-    while (accumulator >= FIXED_DT && steps < MAX_STEPS_PER_RENDER) {
+    const stepLimit = MAX_STEPS_PER_RENDER * speed;
+    while (game.status === "RUNNING" && accumulator >= FIXED_DT && steps < stepLimit) {
       const events = game.step();
       renderer.consume(events);
       audio.consume(events);
       accumulator -= FIXED_DT;
       steps += 1;
     }
-    if (steps === MAX_STEPS_PER_RENDER) accumulator = Math.min(accumulator, FIXED_DT);
+    if (steps === stepLimit) accumulator = Math.min(accumulator, FIXED_DT);
+    renderMatch();
+    if (game.status === "FINISHED") finishRound();
   }
-  if (game?.status === "FINISHED" && !lastSpectatorResult) {
-    lastSpectatorResult = game.getResult();
-    seedInput.disabled = false;
-    if (pendingSingleResult) showComparison(lastSpectatorResult, pendingSingleResult);
-  }
-  if (game && renderer) renderer.render(game);
-  requestAnimationFrame(frame);
+  requestAnimationFrame(renderFrame);
 }
 
-function metric(label, value) {
-  return `<div class="metric">${label}<strong>${value}</strong></div>`;
-}
-
-function renderBatch(result) {
-  const data = result.aggregate;
-  const percent = value => `${(value * 100).toFixed(1)}%`;
-  resultSummary.innerHTML = [
-    metric("완료 경기", data.totalMatches),
-    metric("P1 승률", percent(data.p1WinRate)),
-    metric("P2 승률", percent(data.p2WinRate)),
-    metric("무승부", percent(data.drawRate)),
-    metric("KO 비율", percent(data.koRate)),
-    metric("평균 시간", `${data.averageMatchDuration.toFixed(2)}s`),
-    metric("P1 평균 피해", data.averageDamageDealtByP1.toFixed(1)),
-    metric("P2 평균 피해", data.averageDamageDealtByP2.toFixed(1)),
-    metric("P1 평균 카운터", data.averageCountersByP1.toFixed(2)),
-    metric("P2 평균 카운터", data.averageCountersByP2.toFixed(2)),
-    metric("P1 카운터 성공률", percent(data.p1CounterSuccessRate)),
-    metric("P2 카운터 성공률", percent(data.p2CounterSuccessRate)),
-    metric("P1 평균 회피", data.averageDodgesByP1.toFixed(2)),
-    metric("P2 평균 회피", data.averageDodgesByP2.toFixed(2)),
-    metric("P1 회피 성공률", percent(data.p1DodgeSuccessRate)),
-    metric("P2 회피 성공률", percent(data.p2DodgeSuccessRate))
-  ].join("");
-  singleResult.textContent = result.singleMatch ? JSON.stringify(result.singleMatch, null, 2) : "";
-}
-
-function canonicalResult({ mode, ...combatResult }) {
-  return combatResult;
-}
-
-function firstDifference(left, right, path = "result") {
-  if (Object.is(left, right)) return null;
-  if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) {
-    return `${path}: ${JSON.stringify(left)} ≠ ${JSON.stringify(right)}`;
-  }
-  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
-  for (const key of keys) {
-    const difference = firstDifference(left[key], right[key], `${path}.${key}`);
-    if (difference) return difference;
-  }
-  return null;
-}
-
-function showComparison(spectatorResult, simulationResult) {
-  const difference = firstDifference(
-    canonicalResult(spectatorResult),
-    canonicalResult(simulationResult)
-  );
-  if (!difference) {
-    progressLabel.textContent = `관전 결과와 일치 · seed ${activeMatchConfig.seed}`;
-    return;
-  }
-  progressLabel.textContent =
-    `관전 결과 불일치 · seed ${activeMatchConfig.seed} · rules ${activeMatchConfig.rulesVersion}`
-    + ` · stats ${JSON.stringify({ p1: activeMatchConfig.p1Stats, p2: activeMatchConfig.p2Stats })}`
-    + ` · ${difference}`;
-}
-
-function renderSingleCounterMetrics(match) {
-  const successRate = player => player.countersAttempted > 0
-    ? player.countersSucceeded / player.countersAttempted
-    : 0;
-  resultSummary.innerHTML = [
-    metric("P1 카운터 시도", match.p1.countersAttempted),
-    metric("P1 카운터 성공", match.p1.countersSucceeded),
-    metric("P1 카운터 성공률", `${(successRate(match.p1) * 100).toFixed(1)}%`),
-    metric("P2 카운터 시도", match.p2.countersAttempted),
-    metric("P2 카운터 성공", match.p2.countersSucceeded),
-    metric("P2 카운터 성공률", `${(successRate(match.p2) * 100).toFixed(1)}%`),
-    metric("P1 회피 시도", match.p1.dodgesAttempted),
-    metric("P1 회피 성공", match.p1.dodgesSucceeded),
-    metric("P1 회피 성공률", `${(
-      match.p1.dodgesAttempted > 0 ? match.p1.dodgesSucceeded / match.p1.dodgesAttempted * 100 : 0
-    ).toFixed(1)}%`),
-    metric("P2 회피 시도", match.p2.dodgesAttempted),
-    metric("P2 회피 성공", match.p2.dodgesSucceeded),
-    metric("P2 회피 성공률", `${(
-      match.p2.dodgesAttempted > 0 ? match.p2.dodgesSucceeded / match.p2.dodgesAttempted * 100 : 0
-    ).toFixed(1)}%`)
-  ].join("");
-}
-
-async function runBatch(count) {
-  document.querySelectorAll("[data-count]").forEach(button => { button.disabled = true; });
-  cancelButton.disabled = false;
-  downloadButton.disabled = true;
-  progressBar.style.width = "0%";
-  progressLabel.textContent = `${count}회 시뮬레이션 준비 중…`;
-  activeRunner = new BatchRunner();
-  const batchConfig = count === 1 && activeMatchConfig
-    ? activeMatchConfig
-    : snapshotMatchConfig();
-  const started = performance.now();
-  try {
-    lastBatchResult = await activeRunner.run({
-      count,
-      baseSeed: batchConfig.seed,
-      p1Stats: batchConfig.p1Stats,
-      p2Stats: batchConfig.p2Stats,
-      onProgress: (done, total) => {
-        const progress = done / total;
-        progressBar.style.width = `${progress * 100}%`;
-        progressLabel.textContent = `${done.toLocaleString()} / ${total.toLocaleString()} 경기`;
-      }
-    });
-    renderBatch(lastBatchResult);
-    if (count === 1) {
-      pendingSingleResult = lastBatchResult.singleMatch;
-      renderSingleCounterMetrics(pendingSingleResult);
-    }
-    const elapsed = ((performance.now() - started) / 1000).toFixed(2);
-    progressLabel.textContent = `${lastBatchResult.status} · ${lastBatchResult.completedMatches}경기 · ${elapsed}초`;
-    if (count === 1 && lastSpectatorResult) {
-      showComparison(lastSpectatorResult, pendingSingleResult);
-    } else if (count === 1) {
-      progressLabel.textContent += " · 관전 종료 후 자동 비교";
-    }
-    downloadButton.disabled = false;
-  } catch (error) {
-    progressLabel.textContent = `실패: ${error.message}`;
-  } finally {
-    document.querySelectorAll("[data-count]").forEach(button => { button.disabled = false; });
-    cancelButton.disabled = true;
-    activeRunner = null;
-  }
-}
-
-startButton.addEventListener("click", () => prepareAndRun(() => createSpectatorGame()));
-pauseButton.addEventListener("click", () => { paused = true; });
-resumeButton.addEventListener("click", () => {
-  if (game?.status === "RUNNING") prepareAndRun(() => { paused = false; });
-});
-restartButton.addEventListener("click", () => prepareAndRun(() => createSpectatorGame()));
-document.addEventListener("keydown", event => {
-  if (experienceFrame.dataset.view === "battle" && event.key.toLowerCase() === "r" && !event.repeat) {
-    prepareAndRun(() => createSpectatorGame());
-  }
-});
-document.querySelectorAll("[data-count]").forEach(button => {
-  button.addEventListener("click", () => runBatch(Number(button.dataset.count)));
-});
-cancelButton.addEventListener("click", () => activeRunner?.cancel());
-downloadButton.addEventListener("click", () => {
-  if (!lastBatchResult) return;
-  const blob = new Blob([JSON.stringify(lastBatchResult, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `aislop-results-${lastBatchResult.baseSeed}-${lastBatchResult.completedMatches}.json`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-});
 statControls.addEventListener("click", event => {
   const button = event.target.closest("[data-stat]");
+  if (!button || run.status !== "ready") return;
+  const allocation = adjustAllocation(run.allocation, button.dataset.stat, Number(button.dataset.delta));
+  run = { ...run, allocation };
+  saveRun();
+  renderTraining();
+  if (button.disabled) {
+    const row = statRows.find(candidate => candidate.key === button.dataset.stat);
+    (row.decrease.disabled ? row.increase : row.decrease).focus();
+  }
+});
+resetButton.addEventListener("click", () => {
+  run = { ...run, allocation: resetAllocation(run.allocation) };
+  saveRun();
+  renderTraining();
+  statRows[0].increase.focus();
+});
+loadoutList.addEventListener("click", event => {
+  const button = event.target.closest("[data-equip]");
+  if (!button || run.status !== "ready" || !run.owned.includes(button.dataset.equip)) return;
+  run = { ...run, equipped: run.equipped === button.dataset.equip ? null : button.dataset.equip };
+  saveRun();
+  renderTraining();
+  renderLoadout();
+  loadoutList.querySelector(`[data-equip="${button.dataset.equip}"]`).focus();
+});
+rewardList.addEventListener("click", event => {
+  const button = event.target.closest("[data-reward]");
   if (!button) return;
-  allocation = adjustAllocation(allocation, button.dataset.stat, Number(button.dataset.delta));
-  renderSetup();
+  run = claimReward(run, button.dataset.reward);
+  saveRun();
+  showCampaign(true);
 });
-resetStatsButton.addEventListener("click", () => {
-  allocation = resetAllocation(allocation);
-  renderSetup();
+select("new-run-button").addEventListener("click", () => {
+  run = createRun(newSeed());
+  saveRun();
+  showCampaign(true);
 });
-beginBattleButton.addEventListener("click", beginBattle);
-backToSetupButton.addEventListener("click", showSetup);
+beginButton.addEventListener("click", startRound);
+resultAction.addEventListener("click", () => {
+  if (!match.exhibition && run.status === "between") startRound();
+  else showCampaign(true);
+});
+pauseButton.addEventListener("click", () => {
+  paused = !paused;
+  previousTimestamp = null;
+  updateBattleControls();
+});
+speedButton.addEventListener("click", () => {
+  speed = speed === 1 ? 2 : 1;
+  accumulator = 0;
+  updateBattleControls();
+});
+restartButton.addEventListener("click", () => startMatch(match));
+skipButton.addEventListener("click", () => {
+  renderer.reset();
+  while (game.status === "RUNNING") game.step();
+  renderMatch();
+  finishRound();
+});
+exitExhibitionButton.addEventListener("click", () => {
+  lab.leaveExhibition();
+  showCampaign(true);
+});
+soundButton.addEventListener("click", () => {
+  if (!audio) return;
+  audio.setEnabled(!audio.enabled);
+  soundButton.setAttribute("aria-pressed", String(audio.enabled));
+  soundButton.textContent = audio.enabled ? "사운드 켜짐" : "사운드 꺼짐";
+  if (audio.enabled) audio.unlock().then(() => { soundButton.title = ""; })
+    .catch(() => { soundButton.title = "사운드를 불러오지 못했습니다."; });
+});
+document.addEventListener("keydown", event => {
+  if (!match || roundFinished || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.target.closest?.("input, textarea, select, [contenteditable]")) return;
+  if (event.key.toLowerCase() === "r") startMatch(match);
+});
 
+saveRun();
+showCampaign();
 try {
   const assets = await loadAssets();
-  renderer = new Renderer(canvas, assets);
+  renderer = new Renderer(select("game-canvas"), assets);
   audio = new AudioManager(assets.sounds);
-  startButton.disabled = false;
-  beginBattleButton.disabled = false;
-  createSpectatorGame(false);
-  setView("setup", false);
-  renderSetup();
-  requestAnimationFrame(frame);
+  beginButton.disabled = false;
+  lab.setMatchActive(false);
+  requestAnimationFrame(renderFrame);
 } catch (error) {
-  progressLabel.textContent = error.message;
+  bootError.hidden = false;
+  bootError.textContent = error.message;
 }

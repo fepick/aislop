@@ -5,8 +5,9 @@ export const ASSETS = Object.freeze({
     P2: new URL("../../asset/player_sprite/blue_bull_sheet.png", import.meta.url).href
   }),
   sounds: Object.freeze({
-    attack: new URL("../../asset/sound/attack-shout.wav", import.meta.url).href,
-    hit: new URL("../../asset/sound/hit-impact.wav", import.meta.url).href
+    attack: new URL("../../asset/sound/ring-swing.wav", import.meta.url).href,
+    hit: new URL("../../asset/sound/ring-impact.wav", import.meta.url).href,
+    bell: new URL("../../asset/sound/ring-bell.wav", import.meta.url).href
   })
 });
 

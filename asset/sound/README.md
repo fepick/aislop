@@ -1,5 +1,13 @@
 # Sound assets
 
+- `ring-swing.wav`: 공격 시작 효과음
+- `ring-impact.wav`: 피격 효과음
+- `ring-bell.wav`: 라운드 시작과 종료 벨
+
+현재 게임은 위 세 개의 프로젝트용 합성 PCM 효과음을 사용한다. 외부 녹음이나 샘플은 사용하지 않았다.
+
+이전 프로토타입 에셋
+
 - `attack-shout.wav`: 짧은 “우!” 공격 음성
 - `hit-impact.wav`: 짧은 “뻑!” 피격 음성
 

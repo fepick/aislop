@@ -1,5 +1,6 @@
 import {
   AI_PROFILE_VERSION,
+  EQUIPMENT_RULES_VERSION,
   FIXED_DT,
   PLAYER_CONFIGS,
   RNG_VERSION,
@@ -38,7 +39,7 @@ const scaledTiming = (player, config) => {
 };
 
 export class Game {
-  constructor({ seed = 0, mode = "simulation", p1Stats, p2Stats, collectEvents = false } = {}) {
+  constructor({ seed = 0, mode = "simulation", p1Stats, p2Stats, p1Equipment, opponent, collectEvents = false } = {}) {
     this.seed = normalizeSeed(seed);
     this.mode = mode;
     this.rng = new SeededRng(this.seed);
@@ -59,8 +60,8 @@ export class Game {
       P2: new SeededRng(mixSeed(this.seed, 808))
     };
     this.players = [
-      createPlayer(PLAYER_CONFIGS[0], p1Stats),
-      createPlayer(PLAYER_CONFIGS[1], p2Stats)
+      createPlayer(PLAYER_CONFIGS[0], p1Stats, p1Equipment),
+      createPlayer(opponent ? { ...PLAYER_CONFIGS[1], ...opponent } : PLAYER_CONFIGS[1], p2Stats)
     ];
     this.tick = 0;
     this.status = "RUNNING";
@@ -130,7 +131,8 @@ export class Game {
       player.x += player.facing * config.moveSpeed * FIXED_DT;
     }
     if (action.type === "ROPE_DROP_KICK" && action.elapsed >= timing.startup && action.elapsed < timing.startup + timing.active) {
-      player.x += player.facing * config.moveSpeed * player.derivedStats.moveScale * FIXED_DT;
+      const travelMultiplier = player.equipment.ropeTravelMultiplier ?? 1;
+      player.x += player.facing * config.moveSpeed * player.derivedStats.moveScale * travelMultiplier * FIXED_DT;
     }
     player.x = clamp(player.x, WORLD.ringMinX, WORLD.ringMaxX);
     if (action.elapsed >= timing.total) {
@@ -241,6 +243,7 @@ export class Game {
       rawStats: { ...player.rawStats },
       derivedStats: { ...player.derivedStats },
       aiProfileId: player.aiProfileId,
+      ...(Object.keys(player.equipment).length ? { equipment: { ...player.equipment } } : {}),
       finalHealth: player.health,
       finalRage: player.rage,
       ...player.metrics
@@ -250,7 +253,7 @@ export class Game {
       matchId,
       seed: this.seed,
       mode: this.mode,
-      rulesVersion: RULES_VERSION,
+      rulesVersion: Object.keys(this.players[0].equipment).length ? EQUIPMENT_RULES_VERSION : RULES_VERSION,
       statRulesVersion: STAT_RULES_VERSION,
       aiProfileVersion: AI_PROFILE_VERSION,
       rngAlgorithmVersion: RNG_VERSION,

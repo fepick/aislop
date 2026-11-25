@@ -19,6 +19,7 @@ export class AudioManager {
     this.loading = null;
     this.voices = [];
     this.maxVoices = 4;
+    this.enabled = true;
   }
 
   async unlock() {
@@ -38,8 +39,13 @@ export class AudioManager {
     await this.loading;
   }
 
+  setEnabled(enabled) {
+    this.enabled = enabled;
+    if (!enabled) this.voices.splice(0).forEach(voice => voice.stop());
+  }
+
   play(key, gainValue) {
-    if (!this.context || this.context.state !== "running" || !this.buffers[key]) return;
+    if (!this.enabled || !this.context || this.context.state !== "running" || !this.buffers[key]) return;
     while (this.voices.length >= this.maxVoices) this.voices.shift().stop();
     const source = this.context.createBufferSource();
     const gain = this.context.createGain();

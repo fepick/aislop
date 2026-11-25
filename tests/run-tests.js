@@ -1,6 +1,17 @@
 import { ACTIONS } from "../src/config/combat-config.js";
 import { AI_PROFILES } from "../src/config/ai-profiles.js";
-import { DEFAULT_STATS, STAT_BUDGET, TIME_LIMIT_TICKS, WORLD } from "../src/config/game-config.js";
+import { EQUIPMENT, STAGES, TRAINING_REWARD } from "../src/config/campaign-config.js";
+import { DEFAULT_STATS, EQUIPMENT_RULES_VERSION, RULES_VERSION, STAT_BUDGET, TIME_LIMIT_TICKS, WORLD } from "../src/config/game-config.js";
+import {
+  availableRewards,
+  claimReward,
+  createRun,
+  effectiveStats,
+  recordRound,
+  restoreRun,
+  roundConfig,
+  seriesOutcome
+} from "../src/campaign/campaign.js";
 import {
   applyHits,
   counterChance,
@@ -60,6 +71,83 @@ test("default damage and critical chance match rules", () => {
   assert.equal(normalDamage(7, game.players[0], game.players[1]), 9);
   assert.equal(criticalChance(game.players[0]), 0.12);
   assert.equal(game.players[0].health, 100);
+});
+
+test("campaign series ends at two wins or after three rounds", () => {
+  const ready = createRun(7);
+  const between = recordRound(ready, "P1");
+  assert.equal(between.status, "between");
+  const reward = recordRound(between, "P1");
+  assert.equal(reward.status, "reward");
+  assert.equal(recordRound(reward, "P2"), reward);
+  assert.equal(seriesOutcome(["P1", "DRAW"]), null);
+  assert.equal(seriesOutcome(["P1", "DRAW", "P1"]), "P1");
+  const eliminated = ["P1", "DRAW", "P2"].reduce(recordRound, ready);
+  assert.equal(eliminated.status, "eliminated");
+  assert.deepEqual(eliminated.rounds, ["P1", "DRAW", "P2"]);
+});
+
+test("unique campaign rewards advance the run through the boss", () => {
+  let run = createRun(7);
+  run = { ...run, allocation: adjustAllocation(run.allocation, "maxHealth", 1) };
+  assert.equal(claimReward(run, EQUIPMENT[0].id), run);
+  for (const [index, item] of EQUIPMENT.entries()) {
+    const reward = ["P1", "P1"].reduce(recordRound, run);
+    assert.deepEqual(availableRewards(reward).map(candidate => candidate.id), EQUIPMENT.slice(index).map(candidate => candidate.id));
+    run = claimReward(reward, item.id);
+    assert.equal(run.stage, index + 1);
+    assert.equal(run.equipped, item.id);
+    assert.equal(run.allocation.remainingBudget, STAT_BUDGET - 1 + TRAINING_REWARD * run.stage);
+    assert.deepEqual(run.rounds, []);
+  }
+  assert.equal(roundConfig(run).opponent.name, STAGES.at(-1).name);
+  assert.equal(effectiveStats(run).defense, DEFAULT_STATS.defense + 2);
+  assert.equal(run.allocation.currentStats.defense, DEFAULT_STATS.defense);
+  const champion = ["P1", "DRAW", "P1"].reduce(recordRound, run);
+  assert.equal(champion.status, "champion");
+  assert.deepEqual(restoreRun(JSON.stringify(champion), 99), champion);
+});
+
+test("restoring a saved series preserves its next round and validates allocations", () => {
+  const first = ["P1", "P1"].reduce(recordRound, createRun(77));
+  const second = claimReward(first, "heels");
+  second.allocation = adjustAllocation(second.allocation, "power", 1);
+  const between = recordRound(second, "DRAW");
+  const corrupted = JSON.parse(JSON.stringify(between));
+  corrupted.allocation.currentStats.power = 100;
+  const restored = restoreRun(JSON.stringify(between), 99);
+  assert.deepEqual(restored, between);
+  assert.deepEqual(roundConfig(restored), roundConfig(between));
+  assert.ok(roundConfig(restored).seed !== roundConfig(second).seed);
+  assert.deepEqual(restoreRun(JSON.stringify(corrupted), 99), createRun(99));
+  assert.deepEqual(restoreRun("invalid", 99), createRun(99));
+});
+
+test("campaign equipment affects its intended action and versions only modified matches", () => {
+  const [carbon, heels] = EQUIPMENT;
+  const base = new Game({ seed: 1 });
+  const equipped = new Game({ seed: 1, p1Equipment: carbon.effects });
+  function ropeTravel(game) {
+    const [p1, p2] = game.players;
+    p1.action = { type: "ROPE_DROP_KICK", elapsed: ACTIONS.ROPE_DROP_KICK.startup - 1, hasHit: false };
+    game.updatePlayer(p1, p2.x);
+    return p1.x - p1.previousX;
+  }
+  assert.ok(Math.abs(ropeTravel(equipped) / ropeTravel(base) - carbon.effects.ropeTravelMultiplier) < 1e-9);
+  const wearer = new Game({ seed: 1, p1Equipment: heels.effects }).players[0];
+  assert.equal(criticalChance(wearer, "KICK"), 0.24);
+  assert.equal(criticalChance(wearer, "PUSH"), 0.12);
+  assert.equal(criticalChance(wearer, "ROPE_DROP_KICK"), 0.12);
+  assert.equal(runMatch({ seed: 1 }).rulesVersion, RULES_VERSION);
+  for (const item of [carbon, heels]) {
+    const run = claimReward(["P1", "P1"].reduce(recordRound, createRun(1)), item.id);
+    const config = roundConfig(run);
+    const { mode, ...spectator } = runMatch({ ...config, mode: "spectator" });
+    const { mode: simulationMode, ...simulation } = runMatch(config);
+    assert.deepEqual(spectator, simulation);
+    assert.equal(simulation.rulesVersion, EQUIPMENT_RULES_VERSION);
+    assert.deepEqual(simulation.p1.equipment, item.effects);
+  }
 });
 
 test("stat rules derive documented baseline and investment values", () => {

@@ -1,121 +1,148 @@
 <!doctype html>
 <html lang="ko">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <title>AI Slop Wrestling Simulator</title>
-    <link rel="stylesheet" href="./style.css?v=0.6.0">
-  </head>
-  <body>
-    <main class="app-shell">
-      <header class="title-row">
-        <div>
-          <p class="eyebrow">DETERMINISTIC AUTO BATTLE</p>
-          <h1>AI SLOP WRESTLING</h1>
-        </div>
-        <span class="version">RULES 0.6.0</span>
-      </header>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#151613">
+  <title>IRON RING · 로드 투 더 벨트</title>
+  <link rel="icon" href="./asset/favicon.ico">
+  <link rel="stylesheet" href="./style.css?v=iron-ring-1">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="아이언 링 홈">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span><b>IRON RING</b><small>WRESTLING LEAGUE</small></span>
+      </a>
+      <nav class="top-actions" aria-label="게임 메뉴">
+        <button id="lab-toggle" class="quiet" aria-expanded="false" aria-controls="lab-panel">실험실</button>
+        <button id="sound-button" class="quiet sound-button" aria-pressed="true">사운드 켜짐</button>
+      </nav>
+    </header>
 
-      <section id="experience-frame" class="experience-frame" data-view="setup">
-      <section id="setup-screen" class="setup-screen experience-layer" data-active="true" aria-label="선수 스테이터스 설정">
-        <div class="setup-column">
-          <section class="setup-card stat-card">
-            <div class="budget-box">
-              <span>STAT BUDGET</span>
-              <strong id="stat-budget">10</strong>
+    <ol id="stage-path" class="stage-path" aria-label="토너먼트 진행"></ol>
+
+    <div id="experience-frame" class="experience-frame" data-view="setup">
+      <section id="setup-screen" class="screen setup-screen" aria-label="선수 준비">
+        <section class="match-card" aria-labelledby="chapter-title">
+          <div class="match-copy">
+            <p id="stage-kicker" class="eyebrow"></p>
+            <h1 id="chapter-title">로드 투<br>더 벨트<span>.</span></h1>
+            <p id="stage-intro" class="story"></p>
+            <button id="begin-battle-button" class="primary" type="button" disabled>
+              <span>경기 시작</span><span aria-hidden="true">↗</span>
+            </button>
+            <p id="boot-error" class="status-line" role="status" hidden></p>
+          </div>
+          <div class="opponent-feature">
+            <img id="opponent-art" src="./asset/campaign/blue-bull.png" alt="">
+            <div class="opponent-title">
+              <p class="eyebrow">다음 상대</p>
+              <h2 id="opponent-name">BLUE BULL</h2>
+              <p id="opponent-title"></p>
             </div>
-            <div class="fighter-stat-header">
-              <div class="setup-sprite red-sprite" aria-label="RED COMET"></div>
-              <div>
-                <h2 class="red-text">RED COMET</h2>
-                <p>CURRENT STATS</p>
+          </div>
+        </section>
+
+        <div class="prep-grid">
+          <section class="panel training" aria-labelledby="training-title">
+            <header class="panel-heading">
+              <div class="player-heading">
+                <span class="player-avatar" aria-hidden="true"></span>
+                <div><p class="eyebrow">RED COMET</p><h2 id="training-title">선수 훈련</h2></div>
               </div>
-            </div>
+              <div class="budget-box"><strong id="stat-budget">10</strong><span>남은 포인트</span></div>
+            </header>
             <div id="stat-controls" class="stat-controls"></div>
-            <p class="setup-note">기본 스테이터스보다 낮출 수 없습니다.</p>
-          </section>
-
-          <section class="setup-card preview-card">
-            <h2>COMBAT PREVIEW</h2>
-            <div id="combat-preview" class="preview-grid"></div>
-          </section>
-        </div>
-
-        <div class="setup-column">
-          <section class="setup-card opponent-card">
-            <h2>NEXT OPPONENT</h2>
-            <div class="opponent-profile">
-              <div class="setup-sprite blue-sprite" aria-label="BLUE BULL"></div>
-              <div>
-                <h3 class="blue-text">BLUE BULL</h3>
-                <p id="opponent-description"></p>
-              </div>
+            <div class="training-footer">
+              <span id="preview-line"></span>
+              <button id="reset-stats-button" class="text-button">배분 초기화</button>
             </div>
-            <div id="opponent-stats" class="opponent-stats"></div>
           </section>
 
-          <section class="setup-card power-card">
-            <h2>TOTAL FIGHT POWER</h2>
-            <div class="power-versus">
-              <div><span class="red-text">RED COMET</span><strong id="player-power">1000</strong></div>
-              <b>VS</b>
-              <div><span class="blue-text">BLUE BULL</span><strong id="opponent-power">1000</strong></div>
-            </div>
-            <p class="power-note">전투력은 비교용 지표이며 승률을 보장하지 않습니다.</p>
-          </section>
-
-          <div class="setup-actions">
-            <button id="reset-stats-button" class="danger">초기화</button>
-            <button id="begin-battle-button" class="primary">전투 시작 ▶</button>
+          <div class="side-panels">
+            <section class="panel scouting" aria-labelledby="scouting-title">
+              <header class="panel-heading"><h2 id="scouting-title">상대 분석</h2><span id="opponent-power" class="power-chip"></span></header>
+              <p id="scouting-copy"></p>
+              <div id="opponent-stats" class="opponent-stats"></div>
+            </section>
+            <section class="panel loadout" aria-labelledby="equipment-title">
+              <header class="panel-heading"><h2 id="equipment-title">장비</h2><span id="equipment-count" class="muted"></span></header>
+              <div id="loadout-list"></div>
+              <p id="equipment-detail" class="equipment-detail"></p>
+            </section>
           </div>
         </div>
       </section>
 
-      <section id="battle-screen" class="battle-screen experience-layer" aria-label="레슬링 관전 화면" aria-hidden="true" hidden>
-        <div class="game-stage">
-          <canvas id="game-canvas" width="1920" height="1080"></canvas>
-          <div class="portrait-notice">가로 화면에서 플레이하세요</div>
+      <section id="battle-screen" class="screen battle-screen" aria-label="레슬링 관전" hidden inert>
+        <canvas id="game-canvas" width="1920" height="1080" aria-label="레슬링 경기 화면"></canvas>
+        <div id="battle-overlay" class="result-overlay" hidden>
+          <div class="result-card">
+            <p id="result-kicker" class="eyebrow"></p>
+            <h2 id="result-title"></h2>
+            <p id="result-copy"></p>
+            <button id="result-action" class="primary" type="button"></button>
+          </div>
         </div>
       </section>
+
+      <section id="reward-screen" class="screen interlude" aria-labelledby="reward-title" hidden inert>
+        <div class="interlude-content">
+          <p class="eyebrow">스테이지 승리</p>
+          <h2 id="reward-title">라커룸 보상<span>.</span></h2>
+          <p>장비 하나를 선택하세요. 다음 스테이지에서 훈련 포인트 3점을 더 받습니다.</p>
+          <div id="reward-list" class="reward-list"></div>
+        </div>
       </section>
 
-        <section class="control-panel battle-only" hidden>
-          <div class="seed-control">
-            <label for="seed-input">MATCH SEED</label>
-            <input id="seed-input" type="number" value="20260728" step="1">
-            <span>현재 경기 seed: <strong id="active-seed">-</strong></span>
-          </div>
-          <div class="button-row">
-            <button id="back-to-setup-button">설정으로 돌아가기</button>
-            <button id="start-button" class="primary">관전 시작</button>
-            <button id="pause-button">일시정지</button>
-            <button id="resume-button">재개</button>
-            <button id="restart-button">재시작 (R)</button>
-          </div>
-        </section>
+      <section id="ending-screen" class="screen interlude" aria-labelledby="ending-title" hidden inert>
+        <div class="interlude-content">
+          <p id="ending-kicker" class="eyebrow"></p>
+          <h2 id="ending-title"></h2>
+          <p id="ending-copy"></p>
+          <button id="new-run-button" class="primary">새 토너먼트 <span aria-hidden="true">↗</span></button>
+        </div>
+      </section>
+    </div>
 
-        <section class="simulation-panel battle-only" hidden>
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">HEADLESS LAB</p>
-              <h2>결과 전용 시뮬레이션</h2>
-            </div>
-            <button id="download-button" disabled>JSON 다운로드</button>
-          </div>
-          <div class="button-row">
-            <button data-count="1">결과만 1회</button>
-            <button data-count="100">100회 실행</button>
-            <button data-count="1000">1,000회 실행</button>
-            <button id="cancel-button" class="danger" disabled>취소</button>
-          </div>
-          <div class="progress-track" aria-label="시뮬레이션 진행률">
-            <div id="progress-bar"></div>
-          </div>
-          <p id="progress-label" class="status-line">실행할 횟수를 선택하세요.</p>
-          <div id="result-summary" class="result-grid"></div>
-          <pre id="single-result" class="result-json" aria-live="polite"></pre>
-        </section>
-    </main>
-    <script type="module" src="./src/main.js"></script>
-  </body>
+    <div id="battle-controls" class="battle-controls" hidden>
+      <div class="series"><b id="battle-stage"></b><span id="battle-score"></span></div>
+      <div class="button-row">
+        <button id="pause-button" class="quiet" aria-pressed="false">일시정지</button>
+        <button id="speed-button" class="quiet" aria-pressed="false">1×</button>
+        <button id="restart-button" class="quiet">라운드 재시작</button>
+        <button id="skip-button" class="quiet">결과 보기</button>
+        <button id="exit-exhibition-button" class="quiet" hidden>캠페인으로</button>
+      </div>
+    </div>
+
+    <section id="lab-panel" class="panel lab-panel" aria-labelledby="lab-title" hidden>
+      <div class="panel-heading">
+        <div><p class="eyebrow">HEADLESS LAB</p><h2 id="lab-title">전투 실험실</h2></div>
+        <button id="download-button" class="quiet" disabled>JSON 다운로드</button>
+      </div>
+      <p class="muted">현재 훈련 스탯으로 BLUE BULL과 겨룹니다. 토너먼트 장비와 전적은 적용되지 않습니다.</p>
+      <div class="lab-setup">
+        <label for="seed-input">경기 시드 <input id="seed-input" type="number" value="20260728" step="1"></label>
+        <button id="exhibition-button" class="quiet" disabled>단일 경기 관전</button>
+        <button data-count="1" class="quiet">결과만 1회</button>
+        <button data-count="100" class="quiet">100회 실행</button>
+        <button data-count="1000" class="quiet">1,000회 실행</button>
+        <button id="cancel-button" class="quiet" disabled>취소</button>
+      </div>
+      <progress id="batch-progress" value="0" max="1" aria-label="시뮬레이션 진행률"></progress>
+      <p id="progress-label" class="status-line" aria-live="polite"></p>
+      <div id="result-summary" class="result-grid"></div>
+      <pre id="single-result" class="result-json" hidden></pre>
+    </section>
+
+    <footer class="footer">
+      <span>IRON RING <span aria-hidden="true">/</span> ROAD TO THE BELT</span>
+      <span id="run-seed"></span>
+    </footer>
+  </main>
+  <script type="module" src="./src/main.js?v=iron-ring-1"></script>
+</body>
 </html>

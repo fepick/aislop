@@ -3,6 +3,7 @@ import { SPRITE_SHEET } from "../config/asset-manifest.js";
 import { announcementForEvent, shakeForDamage, shakeOffset } from "./feedback.js";
 
 const font = (size, weight = "bold") => `${weight} ${size}px "Courier New", monospace`;
+const healthScale = player => Math.max(0.78, Math.min(1.42, Math.sqrt(player.derivedStats.maxHealth / 100)));
 
 export class Renderer {
   constructor(canvas, assets) {
@@ -53,7 +54,7 @@ export class Renderer {
     ctx.fillRect(reverse ? x + width - 6 - fillWidth : x + 6, y + 6, fillWidth, height - 12);
   }
 
-  drawPortrait(player, x, mirrored) {
+  drawPortrait(player, x, mirrored, art) {
     const ctx = this.ctx;
     ctx.save();
     ctx.fillStyle = "#0a0a0a";
@@ -64,22 +65,28 @@ export class Renderer {
     ctx.beginPath();
     ctx.rect(x + 8, 32, 116, 116);
     ctx.clip();
-    if (mirrored) {
-      ctx.translate(x + 132, 0);
-      ctx.scale(-1, 1);
-      x = 0;
+    if (art) {
+      const crop = art.naturalHeight * .29;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(art, art.naturalWidth * .45 - crop / 2, 0, crop, crop, x + 8, 32, 116, 116);
+    } else {
+      if (mirrored) {
+        ctx.translate(x + 132, 0);
+        ctx.scale(-1, 1);
+        x = 0;
+      }
+      ctx.drawImage(this.assets.wrestlerSheets[player.id], 0, 0, 543, 724, x - 4, -9, 140, 187);
     }
-    ctx.drawImage(this.assets.wrestlerSheets[player.id], 0, 0, 543, 724, x - 4, -9, 140, 187);
     ctx.restore();
   }
 
-  drawHud(game) {
+  drawHud(game, opponentArt) {
     const ctx = this.ctx;
     const [p1, p2] = game.players;
     ctx.fillStyle = "#080808e8";
     ctx.fillRect(0, 0, LOGICAL_WIDTH, 190);
     this.drawPortrait(p1, 28, false);
-    this.drawPortrait(p2, 1760, true);
+    this.drawPortrait(p2, 1760, true, opponentArt);
     ctx.font = font(42);
     ctx.fillStyle = "#fff";
     ctx.textAlign = "left";
@@ -102,7 +109,7 @@ export class Renderer {
     ctx.fillText(String(seconds).padStart(2, "0"), 960, 122);
   }
 
-  drawPlayer(player) {
+  drawPlayer(player, tick, art) {
     const ctx = this.ctx;
     let pose = player.counterPoseTicks > 0
       ? "PUSH"
@@ -111,21 +118,44 @@ export class Renderer {
         : player.action?.type ?? "IDLE";
     if (player.health <= 0) pose = "KO";
     const frame = SPRITE_SHEET.frames[pose] ?? 0;
-    const drawHeight = SPRITE_SHEET.drawHeight;
+    const scale = healthScale(player);
+    const drawHeight = SPRITE_SHEET.drawHeight * scale;
     const drawWidth = SPRITE_SHEET.frameWidth / SPRITE_SHEET.frameHeight * drawHeight;
+    const markerWidth = 104 * scale;
+    ctx.fillStyle = player.color;
+    ctx.fillRect(Math.round(player.x - markerWidth / 2), WORLD.floorY + 10, markerWidth, 8);
     ctx.save();
     ctx.translate(Math.round(player.x), Math.round(player.y));
-    if (player.facing < 0) ctx.scale(-1, 1);
     ctx.globalAlpha = player.hitStunTicks > 0 && player.hitStunTicks % 4 < 2 ? 0.58 : 1;
-    ctx.drawImage(
-      this.assets.wrestlerSheets[player.id],
-      frame * SPRITE_SHEET.frameWidth, 0, SPRITE_SHEET.frameWidth, SPRITE_SHEET.frameHeight,
-      -drawWidth * SPRITE_SHEET.pivotX, -drawHeight * SPRITE_SHEET.pivotY,
-      drawWidth, drawHeight
-    );
+    if (art) {
+      this.drawCustomPlayer(player, art, pose, tick, scale);
+    } else {
+      if (player.facing < 0) ctx.scale(-1, 1);
+      ctx.drawImage(
+        this.assets.wrestlerSheets[player.id],
+        frame * SPRITE_SHEET.frameWidth, 0, SPRITE_SHEET.frameWidth, SPRITE_SHEET.frameHeight,
+        -drawWidth * SPRITE_SHEET.pivotX, -drawHeight * SPRITE_SHEET.pivotY,
+        drawWidth, drawHeight
+      );
+    }
     ctx.restore();
-    ctx.fillStyle = player.color;
-    ctx.fillRect(Math.round(player.x - 52), WORLD.floorY + 10, 104, 8);
+  }
+
+  drawCustomPlayer(player, art, pose, tick, scale) {
+    const ctx = this.ctx;
+    const attacking = ["KICK", "PUSH", "DROP_KICK", "ROPE_DROP_KICK"].includes(pose);
+    const jumping = ["DROP_KICK", "ROPE_DROP_KICK"].includes(pose);
+    const height = 307 * scale;
+    const width = height * art.naturalWidth / art.naturalHeight;
+    const stride = pose === "APPROACH" ? 6 : 2;
+    const lift = jumping ? 27 : Math.sin(tick / 5) * stride;
+    if (player.facing > 0) ctx.scale(-1, 1);
+    ctx.translate(attacking ? -21 : 0, -lift);
+    const tilt = pose === "KO" ? .96 : pose === "HIT_STUN" ? .16 : attacking ? -.14 : 0;
+    ctx.rotate(tilt);
+    if (pose === "KO") ctx.translate(-height * .42, height * .44);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(art, -width * .5, -height, width, height);
   }
 
   drawFloating() {
@@ -171,7 +201,7 @@ export class Renderer {
       if (!player) continue;
       const halfWidth = ctx.measureText(item.text).width / 2;
       const x = Math.max(halfWidth + 20, Math.min(LOGICAL_WIDTH - halfWidth - 20, player.x));
-      const y = Math.max(235, player.y - 365);
+      const y = Math.max(235, player.y - 345 * healthScale(player));
       ctx.strokeText(item.text, x, y);
       ctx.fillText(item.text, x, y);
       item.life -= 1;
@@ -179,23 +209,9 @@ export class Renderer {
     this.announcements = this.announcements.filter(item => item.life > 0);
   }
 
-  drawOverlay(game) {
-    if (game.status !== "FINISHED") return;
+  render(game, opponentId) {
     const ctx = this.ctx;
-    ctx.fillStyle = "#000b";
-    ctx.fillRect(0, 190, LOGICAL_WIDTH, LOGICAL_HEIGHT - 190);
-    ctx.textAlign = "center";
-    ctx.font = font(92);
-    ctx.fillStyle = game.winner === "P1" ? "#ff3939" : game.winner === "P2" ? "#3b8cff" : "#fff";
-    const label = game.winner === "P1" ? "RED COMET WIN!" : game.winner === "P2" ? "BLUE BULL WIN!" : "DRAW";
-    ctx.fillText(label, 960, 520);
-    ctx.font = font(34);
-    ctx.fillStyle = "#f2c14e";
-    ctx.fillText(game.resultType, 960, 580);
-  }
-
-  render(game) {
-    const ctx = this.ctx;
+    const opponentArt = this.assets.customWrestlers[opponentId];
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
     const offset = shakeOffset(this.shake);
@@ -205,13 +221,12 @@ export class Renderer {
     ctx.clip();
     ctx.translate(offset.x, offset.y);
     ctx.drawImage(this.assets.arena, 0, 0, 480, 270, -20, -20, LOGICAL_WIDTH + 40, LOGICAL_HEIGHT + 40);
-    this.drawPlayer(game.players[0]);
-    this.drawPlayer(game.players[1]);
+    this.drawPlayer(game.players[0], game.tick);
+    this.drawPlayer(game.players[1], game.tick, opponentArt);
     ctx.restore();
-    this.drawHud(game);
+    this.drawHud(game, opponentArt);
     this.drawFloating();
     this.drawAnnouncements(game);
-    this.drawOverlay(game);
     this.shake.frames = Math.max(0, this.shake.frames - 1);
     if (this.shake.frames === 0) this.shake = { strength: 0, frames: 0, totalFrames: 0 };
   }

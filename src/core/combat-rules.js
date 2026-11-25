@@ -8,8 +8,9 @@ export function normalDamage(baseDamage, attacker, defender) {
   return damageFor(baseDamage, attacker.rawStats, defender.rawStats);
 }
 
-export function criticalChance(attacker) {
-  return attacker.derivedStats.criticalChance;
+export function criticalChance(attacker, actionType) {
+  const kickBonus = actionType === "KICK" ? attacker.equipment?.kickCriticalBonus ?? 0 : 0;
+  return clamp(attacker.derivedStats.criticalChance + kickBonus, 0, 1);
 }
 
 export function counterChance(defender) {
@@ -30,7 +31,7 @@ export function canHit(attacker, defender, actionConfig) {
 
 export function buildHit(attacker, defender, actionType, rng) {
   const config = ACTIONS[actionType];
-  const critical = rng.next() < criticalChance(attacker);
+  const critical = rng.next() < criticalChance(attacker, actionType);
   let damage = normalDamage(config.baseDamage, attacker, defender);
   if (actionType === "ROPE_DROP_KICK") damage += COMBAT.ropeBonusDamage;
   if (critical) damage = Math.floor(damage * attacker.derivedStats.criticalMultiplier);

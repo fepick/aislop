@@ -25,7 +25,7 @@ const emptyMetrics = () => ({
   actionHits: actionCounters()
 });
 
-export function createPlayer(config, stats = config.stats ?? DEFAULT_STATS) {
+export function createPlayer(config, stats = config.stats ?? DEFAULT_STATS, equipment = {}) {
   const rawStats = normalizeRawStats(stats);
   const derivedStats = deriveStats(rawStats);
   return {
@@ -35,6 +35,7 @@ export function createPlayer(config, stats = config.stats ?? DEFAULT_STATS) {
     aiProfileId: config.aiProfileId,
     rawStats,
     derivedStats,
+    equipment,
     health: derivedStats.maxHealth,
     rage: 0,
     x: config.startX,
