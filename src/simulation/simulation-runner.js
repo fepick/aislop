@@ -21,9 +21,10 @@ export function runMatch({
   p1Stats,
   p2Stats,
   p1Equipment,
-  opponent
+  opponent,
+  arena
 } = {}) {
-  const game = new Game({ seed, mode, collectEvents, p1Stats, p2Stats, p1Equipment, opponent });
+  const game = new Game({ seed, mode, collectEvents, p1Stats, p2Stats, p1Equipment, opponent, arena });
   while (game.status === "RUNNING") game.step();
   return game.getResult(matchId);
 }

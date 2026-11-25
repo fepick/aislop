@@ -221,7 +221,7 @@ function updateBattleControls() {
   const { P1, P2 } = roundScore(run.rounds);
   select("battle-score").textContent = match.exhibition
     ? `단일 경기 · 시드 ${match.config.seed}`
-    : `${match.round}라운드 · RED COMET ${P1}–${P2} ${match.stage.name} · 2승제`;
+    : `${match.round}라운드 · RED COMET ${P1}–${P2} ${match.stage.name} · ${match.round === 3 ? "링 수축" : "2승제"}`;
   pauseButton.disabled = roundFinished;
   pauseButton.textContent = paused ? "재개" : "일시정지";
   pauseButton.setAttribute("aria-pressed", String(paused));

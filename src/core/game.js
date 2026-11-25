@@ -1,5 +1,6 @@
 import {
   AI_PROFILE_VERSION,
+  ARENA_RULES_VERSION,
   EQUIPMENT_RULES_VERSION,
   FIXED_DT,
   PLAYER_CONFIGS,
@@ -14,6 +15,7 @@ import { ACTIONS } from "../config/combat-config.js";
 import { AI_PROFILES } from "../config/ai-profiles.js";
 import { SeededRng, mixSeed, normalizeSeed } from "./rng.js";
 import { createPlayer } from "./player.js";
+import { MatchArena } from "./match-arena.js";
 import {
   applyHits,
   applyPendingCounter,
@@ -39,7 +41,7 @@ const scaledTiming = (player, config) => {
 };
 
 export class Game {
-  constructor({ seed = 0, mode = "simulation", p1Stats, p2Stats, p1Equipment, opponent, collectEvents = false } = {}) {
+  constructor({ seed = 0, mode = "simulation", p1Stats, p2Stats, p1Equipment, opponent, arena, collectEvents = false } = {}) {
     this.seed = normalizeSeed(seed);
     this.mode = mode;
     this.rng = new SeededRng(this.seed);
@@ -70,12 +72,21 @@ export class Game {
     this.collectEvents = collectEvents;
     this.events = [];
     this.recentEvents = [];
+    this.arena = arena ? new MatchArena(arena, this.seed, event => this.publish(event)) : null;
   }
 
   emit(type, actorId, targetId, actionType, value, x) {
-    const event = { tick: this.tick, type, actorId, targetId, actionType, value, position: { x, y: WORLD.floorY - 230 } };
+    this.publish({ tick: this.tick, type, actorId, targetId, actionType, value, position: { x, y: WORLD.floorY - 230 } });
+  }
+
+  publish(event) {
     this.recentEvents.push(event);
     if (this.collectEvents && this.events.length < 500) this.events.push(event);
+  }
+
+  get ring() {
+    const bounds = this.arena?.bounds;
+    return bounds && bounds.ringMinX !== WORLD.ringMinX ? bounds : WORLD;
   }
 
   startAction(player, type) {
@@ -98,6 +109,7 @@ export class Game {
   }
 
   updatePlayer(player, opponentX) {
+    const ring = this.ring;
     player.previousX = player.x;
     player.counterPoseTicks = Math.max(0, player.counterPoseTicks - 1);
     for (const key of cooldownKeys) player.cooldowns[key] = Math.max(0, player.cooldowns[key] - 1);
@@ -106,7 +118,7 @@ export class Game {
       player.hitStunTicks -= 1;
       player.x += player.velocityX;
       player.velocityX *= WORLD.knockbackFriction;
-      player.x = clamp(player.x, WORLD.ringMinX, WORLD.ringMaxX);
+      player.x = clamp(player.x, ring.ringMinX, ring.ringMaxX);
       return;
     }
 
@@ -116,6 +128,7 @@ export class Game {
     if (action.type === "APPROACH") {
       player.facing = opponentX >= player.x ? 1 : -1;
       player.x += player.facing * WORLD.approachSpeed * player.derivedStats.moveScale * FIXED_DT;
+      if (ring !== WORLD) player.x = clamp(player.x, ring.ringMinX, ring.ringMaxX);
       action.elapsed += 1;
       if (Math.abs(opponentX - player.x) <= 220 || action.elapsed >= 30) {
         player.action = null;
@@ -134,7 +147,7 @@ export class Game {
       const travelMultiplier = player.equipment.ropeTravelMultiplier ?? 1;
       player.x += player.facing * config.moveSpeed * player.derivedStats.moveScale * travelMultiplier * FIXED_DT;
     }
-    player.x = clamp(player.x, WORLD.ringMinX, WORLD.ringMaxX);
+    player.x = clamp(player.x, ring.ringMinX, ring.ringMaxX);
     if (action.elapsed >= timing.total) {
       player.cooldowns[action.type] = timing.cooldown;
       player.action = null;
@@ -177,8 +190,16 @@ export class Game {
     if (this.status !== "RUNNING") return this.recentEvents;
     this.recentEvents = [];
     const [p1, p2] = this.players;
+    this.arena?.advance(this.tick);
+    const ring = this.ring;
+    if (ring !== WORLD) {
+      p1.x = clamp(p1.x, ring.ringMinX, ring.ringMaxX);
+      p2.x = clamp(p2.x, ring.ringMinX, ring.ringMaxX);
+      resolvePlayerOverlap(p1, p2, ring);
+    }
     this.resolvePendingCounters();
     if (this.finishIfNeeded()) {
+      this.arena?.react(this.tick, this.recentEvents);
       this.tick += 1;
       return this.recentEvents;
     }
@@ -190,7 +211,7 @@ export class Game {
           const profile = AI_PROFILES[player.aiProfileId];
           const { decideAction } = this.aiModule;
           const aiRng = this.aiRng[player.id];
-          this.startAction(player, decideAction(player, opponent, profile, aiRng));
+          this.startAction(player, decideAction(player, opponent, profile, aiRng, ring));
           player.decisionTicks = aiRng.intInclusive(profile.decisionIntervalMin, profile.decisionIntervalMax);
         }
       }
@@ -199,7 +220,7 @@ export class Game {
     const startX = { P1: p1.x, P2: p2.x };
     this.updatePlayer(p1, startX.P2);
     this.updatePlayer(p2, startX.P1);
-    resolvePlayerOverlap(p1, p2);
+    resolvePlayerOverlap(p1, p2, ring);
 
     const hits = [];
     for (const [attacker, defender] of [[p1, p2], [p2, p1]]) {
@@ -214,6 +235,7 @@ export class Game {
       }
     }
     applyHits(hits, (...args) => this.emit(...args), this.counterRng, this.dodgeRng);
+    this.arena?.react(this.tick, this.recentEvents);
 
     this.tick += 1;
     if (this.finishIfNeeded()) {
@@ -248,12 +270,13 @@ export class Game {
       finalRage: player.rage,
       ...player.metrics
     });
+    const baseRulesVersion = Object.keys(this.players[0].equipment).length ? EQUIPMENT_RULES_VERSION : RULES_VERSION;
     return {
       schemaVersion: RESULT_SCHEMA_VERSION,
       matchId,
       seed: this.seed,
       mode: this.mode,
-      rulesVersion: Object.keys(this.players[0].equipment).length ? EQUIPMENT_RULES_VERSION : RULES_VERSION,
+      rulesVersion: this.arena ? ARENA_RULES_VERSION : baseRulesVersion,
       statRulesVersion: STAT_RULES_VERSION,
       aiProfileVersion: AI_PROFILE_VERSION,
       rngAlgorithmVersion: RNG_VERSION,
@@ -263,7 +286,8 @@ export class Game {
       elapsedTicks: this.tick,
       elapsedSeconds: this.tick / 60,
       p1: playerResult(this.players[0]),
-      p2: playerResult(this.players[1])
+      p2: playerResult(this.players[1]),
+      ...(this.arena ? { arena: this.arena.summary() } : {})
     };
   }
 }

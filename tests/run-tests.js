@@ -1,7 +1,9 @@
 import { ACTIONS } from "../src/config/combat-config.js";
 import { AI_PROFILES } from "../src/config/ai-profiles.js";
 import { EQUIPMENT, STAGES, TRAINING_REWARD } from "../src/config/campaign-config.js";
-import { DEFAULT_STATS, EQUIPMENT_RULES_VERSION, RULES_VERSION, STAT_BUDGET, TIME_LIMIT_TICKS, WORLD } from "../src/config/game-config.js";
+import {
+  ARENA_RULES_VERSION, DEFAULT_STATS, EQUIPMENT_RULES_VERSION, RULES_VERSION, STAT_BUDGET, TIME_LIMIT_TICKS, WORLD
+} from "../src/config/game-config.js";
 import {
   availableRewards,
   claimReward,
@@ -20,6 +22,8 @@ import {
   normalDamage
 } from "../src/core/combat-rules.js";
 import { Game } from "../src/core/game.js";
+import { canUseRopeDropkick } from "../src/core/ai-controller.js";
+import { MatchArena } from "../src/core/match-arena.js";
 import { SeededRng, mixSeed } from "../src/core/rng.js";
 import {
   adjustAllocation,
@@ -139,15 +143,80 @@ test("campaign equipment affects its intended action and versions only modified 
   assert.equal(criticalChance(wearer, "PUSH"), 0.12);
   assert.equal(criticalChance(wearer, "ROPE_DROP_KICK"), 0.12);
   assert.equal(runMatch({ seed: 1 }).rulesVersion, RULES_VERSION);
+  assert.equal(runMatch({ seed: 1, p1Equipment: heels.effects }).rulesVersion, EQUIPMENT_RULES_VERSION);
   for (const item of [carbon, heels]) {
     const run = claimReward(["P1", "P1"].reduce(recordRound, createRun(1)), item.id);
     const config = roundConfig(run);
     const { mode, ...spectator } = runMatch({ ...config, mode: "spectator" });
     const { mode: simulationMode, ...simulation } = runMatch(config);
     assert.deepEqual(spectator, simulation);
-    assert.equal(simulation.rulesVersion, EQUIPMENT_RULES_VERSION);
+    assert.equal(simulation.rulesVersion, ARENA_RULES_VERSION);
     assert.deepEqual(simulation.p1.equipment, item.effects);
   }
+});
+
+test("third arena round moves both boundaries and keeps fighters inside", () => {
+  const between = ["P1", "P2"].reduce(recordRound, createRun(42));
+  assert.equal(roundConfig(createRun(42)).arena.contract, false);
+  assert.equal(roundConfig(recordRound(createRun(42), "DRAW")).arena.contract, false);
+  assert.equal(roundConfig(between).arena.contract, true);
+  const game = new Game(roundConfig(between));
+  const { startTick, duration, inset } = game.arena.contraction;
+  const [p1, p2] = game.players;
+  p1.hitStunTicks = p2.hitStunTicks = 600;
+  p1.x = p2.x = WORLD.ringMinX;
+  game.tick = startTick;
+  assert.ok(game.step().some(event => event.type === "RING_CONTRACTION"));
+  assert.equal(game.ring.ringMinX, WORLD.ringMinX);
+  for (let step = 1; step <= duration + 1; step += 1) {
+    game.step();
+    assert.ok(p1.x >= game.ring.ringMinX && p2.x <= game.ring.ringMaxX);
+    assert.ok(p2.x - p1.x >= WORLD.minSeparation - 1e-9);
+  }
+  assert.equal(game.ring.ringMinX, WORLD.ringMinX + inset);
+  assert.equal(game.ring.ringMaxX, WORLD.ringMaxX - inset);
+  p1.x = game.ring.ringMinX + 20;
+  p2.x = game.ring.ringMaxX - 20;
+  p1.facing = 1;
+  p1.rage = 100;
+  assert.equal(canUseRopeDropkick(p1, p2), false);
+  assert.equal(canUseRopeDropkick(p1, p2, game.ring), true);
+});
+
+test("arena reacts to strong hits and limits overlapping cheers", () => {
+  const events = [];
+  const arena = new MatchArena({ id: "iron-king" }, 42, event => events.push(event));
+  arena.react(0, [{ type: "DODGE", value: 20 }]);
+  arena.react(1, [{ type: "HIT", value: 10 }]);
+  arena.react(2, [{ type: "CRITICAL", value: 12 }]);
+  arena.react(3, [{ type: "HIT", actionType: "ROPE_DROP_KICK", value: 29 }]);
+  arena.react(109, [{ type: "HIT", actionType: "ROPE_DROP_KICK", value: 29 }]);
+  assert.deepEqual(events.map(event => [event.type, event.tick]), [["CROWD_CHEER", 2], ["CROWD_CHEER", 109]]);
+});
+
+test("spectator and headless share arena events without changing combat RNG", () => {
+  const items = new Set();
+  for (let seed = 1; seed <= 12; seed += 1) {
+    const config = roundConfig(["P1", "P2"].reduce(recordRound, createRun(seed)));
+    const spectator = new Game({ ...config, mode: "spectator", collectEvents: true });
+    const headless = new Game({ ...config, collectEvents: true });
+    while (spectator.status === "RUNNING") spectator.step();
+    while (headless.status === "RUNNING") headless.step();
+    const { mode, ...spectatorResult } = spectator.getResult();
+    const { mode: headlessMode, ...headlessResult } = headless.getResult();
+    assert.deepEqual(spectatorResult, headlessResult);
+    assert.deepEqual(spectator.events, headless.events);
+    assert.ok(spectator.events.some(event => event.type === "RING_CONTRACTION"));
+    for (const event of spectator.events) {
+      if (event.type === "CROWD_THROW") items.add(event.item);
+    }
+
+    const early = roundConfig(createRun(seed));
+    const { arena, rulesVersion, ...arenaResult } = runMatch(early);
+    const { rulesVersion: originalRules, ...originalResult } = runMatch({ ...early, arena: undefined });
+    assert.deepEqual(arenaResult, originalResult);
+  }
+  assert.deepEqual([...items].sort(), ["chair", "trash"]);
 });
 
 test("stat rules derive documented baseline and investment values", () => {

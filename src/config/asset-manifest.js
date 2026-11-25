@@ -7,7 +7,8 @@ export const ASSETS = Object.freeze({
   sounds: Object.freeze({
     attack: new URL("../../asset/sound/ring-swing.wav", import.meta.url).href,
     hit: new URL("../../asset/sound/ring-impact.wav", import.meta.url).href,
-    bell: new URL("../../asset/sound/ring-bell.wav", import.meta.url).href
+    bell: new URL("../../asset/sound/ring-bell.wav", import.meta.url).href,
+    crowd: new URL("../../asset/sound/ring-crowd.wav", import.meta.url).href
   })
 });
 

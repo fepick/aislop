@@ -62,6 +62,7 @@ export class AudioManager {
   consume(events) {
     for (const event of events) {
       if (event.type === "ACTION_STARTED") this.play("attack", 0.55);
+      if (event.type === "CROWD_CHEER") this.play("crowd", 0.55);
       if (["HIT", "CRITICAL", "COUNTER"].includes(event.type)) {
         this.play("hit", hitGain(event.value));
       }

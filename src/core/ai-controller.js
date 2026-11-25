@@ -2,22 +2,22 @@ import { ACTIONS, ATTACK_ORDER } from "../config/combat-config.js";
 import { WORLD } from "../config/game-config.js";
 import { isBusy } from "./player.js";
 
-const atOwnRope = player =>
+const atOwnRope = (player, ring) =>
   player.facing === 1
-    ? player.x <= WORLD.ringMinX + WORLD.ropeZoneWidth
-    : player.x >= WORLD.ringMaxX - WORLD.ropeZoneWidth;
+    ? player.x <= ring.ringMinX + WORLD.ropeZoneWidth
+    : player.x >= ring.ringMaxX - WORLD.ropeZoneWidth;
 
-export function canUseRopeDropkick(player, opponent) {
+export function canUseRopeDropkick(player, opponent, ring = WORLD) {
   return player.rage >= 100
     && player.cooldowns.ROPE_DROP_KICK <= 0
-    && atOwnRope(player)
+    && atOwnRope(player, ring)
     && (opponent.x - player.x) * player.facing > 0
     && Math.abs(opponent.x - player.x) >= WORLD.ropeMinTargetDistance;
 }
 
-export function decideAction(player, opponent, profile, rng) {
+export function decideAction(player, opponent, profile, rng, ring = WORLD) {
   if (isBusy(player)) return null;
-  if (canUseRopeDropkick(player, opponent) && rng.next() < profile.ropeDropkickChance) {
+  if (canUseRopeDropkick(player, opponent, ring) && rng.next() < profile.ropeDropkickChance) {
     return "ROPE_DROP_KICK";
   }
   const distance = Math.abs(opponent.x - player.x);

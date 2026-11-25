@@ -1,5 +1,6 @@
 import { LOGICAL_HEIGHT, LOGICAL_WIDTH, TIME_LIMIT_TICKS, WORLD } from "../config/game-config.js";
 import { SPRITE_SHEET } from "../config/asset-manifest.js";
+import { ArenaRenderer } from "./arena-renderer.js";
 import { announcementForEvent, shakeForDamage, shakeOffset } from "./feedback.js";
 
 const font = (size, weight = "bold") => `${weight} ${size}px "Courier New", monospace`;
@@ -11,6 +12,7 @@ export class Renderer {
     this.ctx = canvas.getContext("2d");
     this.ctx.imageSmoothingEnabled = false;
     this.assets = assets;
+    this.arena = new ArenaRenderer(this.ctx);
     this.floating = [];
     this.announcements = [];
     this.shake = { strength: 0, frames: 0, totalFrames: 0 };
@@ -18,6 +20,7 @@ export class Renderer {
 
   consume(events) {
     for (const event of events) {
+      this.arena.consume(event);
       const announcement = announcementForEvent(event);
       if (announcement) this.announcements.push(announcement);
       if (event.type === "HIT" || event.type === "CRITICAL" || event.type === "COUNTER") {
@@ -36,6 +39,7 @@ export class Renderer {
   }
 
   reset() {
+    this.arena.reset();
     this.floating = [];
     this.announcements = [];
     this.shake = { strength: 0, frames: 0, totalFrames: 0 };
@@ -220,13 +224,19 @@ export class Renderer {
     ctx.rect(0, 190, LOGICAL_WIDTH, LOGICAL_HEIGHT - 190);
     ctx.clip();
     ctx.translate(offset.x, offset.y);
-    ctx.drawImage(this.assets.arena, 0, 0, 480, 270, -20, -20, LOGICAL_WIDTH + 40, LOGICAL_HEIGHT + 40);
+    if (game.arena) {
+      this.arena.draw(game.arena.id, game.ring, game.tick);
+    } else {
+      ctx.drawImage(this.assets.arena, 0, 0, 480, 270, -20, -20, LOGICAL_WIDTH + 40, LOGICAL_HEIGHT + 40);
+    }
     this.drawPlayer(game.players[0], game.tick);
     this.drawPlayer(game.players[1], game.tick, opponentArt);
+    if (game.arena) this.arena.drawProps(game.arena.id, game.tick);
     ctx.restore();
     this.drawHud(game, opponentArt);
     this.drawFloating();
     this.drawAnnouncements(game);
+    if (game.arena) this.arena.drawSignal(game.tick);
     this.shake.frames = Math.max(0, this.shake.frames - 1);
     if (this.shake.frames === 0) this.shake = { strength: 0, frames: 0, totalFrames: 0 };
   }

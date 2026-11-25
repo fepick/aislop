@@ -144,12 +144,17 @@ export function applyPendingCounter(counterer, target, pending, emit) {
   }, emit, "COUNTER");
 }
 
-export function resolvePlayerOverlap(p1, p2) {
+export function resolvePlayerOverlap(p1, p2, ring = WORLD) {
   const distance = p2.x - p1.x;
   const overlap = WORLD.minSeparation - Math.abs(distance);
   if (overlap <= 0) return;
   const direction = distance >= 0 ? 1 : -1;
   const half = overlap / 2;
-  p1.x = clamp(p1.x - direction * half, WORLD.ringMinX, WORLD.ringMaxX);
-  p2.x = clamp(p2.x + direction * half, WORLD.ringMinX, WORLD.ringMaxX);
+  p1.x = clamp(p1.x - direction * half, ring.ringMinX, ring.ringMaxX);
+  p2.x = clamp(p2.x + direction * half, ring.ringMinX, ring.ringMaxX);
+  if (ring !== WORLD && Math.abs(p2.x - p1.x) < WORLD.minSeparation) {
+    const [left, right] = direction > 0 ? [p1, p2] : [p2, p1];
+    left.x = Math.min(left.x, ring.ringMaxX - WORLD.minSeparation);
+    right.x = left.x + WORLD.minSeparation;
+  }
 }

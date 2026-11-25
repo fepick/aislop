@@ -76,7 +76,8 @@ export function roundConfig(run) {
     p1Stats: effectiveStats(run),
     p2Stats: stage.stats,
     p1Equipment: equipmentFor(run)?.effects,
-    opponent: { name: stage.name, color: stage.color }
+    opponent: { name: stage.name, color: stage.color },
+    arena: { id: stage.id, contract: run.rounds.length === 2 }
   };
 }
 
