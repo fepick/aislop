@@ -33,16 +33,16 @@ const statGear = {
     ["rivals-notes", "라이벌의 노트", { insight: 3, defense: 2 }]
   ],
   epic: [
-    ["surge-boots", "서지 부츠", { attackSpeed: 4, moveSpeed: 3 }],
-    ["iron-singlet", "철사 직조 싱글렛", { maxHealth: 4, defense: 3 }],
-    ["heavy-soles", "헤비급 밑창", { power: 5, defense: 3, moveSpeed: -1 }],
-    ["ringside-optics", "링사이드 렌즈", { insight: 4, sharpness: 3 }],
-    ["comet-wraps", "혜성 붕대", { attackSpeed: 3, power: 3, sharpness: 1 }],
-    ["breath-vest", "호흡 훈련 조끼", { maxHealth: 4, moveSpeed: 3 }]
+    ["surge-boots", "서지 부츠", { attackSpeed: 5, moveSpeed: 3, power: 2 }],
+    ["iron-singlet", "철사 직조 싱글렛", { maxHealth: 5, defense: 4, attackSpeed: 1 }],
+    ["heavy-soles", "헤비급 밑창", { power: 6, defense: 4, moveSpeed: -1 }],
+    ["ringside-optics", "링사이드 렌즈", { insight: 6, sharpness: 4, defense: 2 }],
+    ["comet-wraps", "혜성 붕대", { attackSpeed: 4, power: 4, sharpness: 1 }],
+    ["breath-vest", "호흡 훈련 조끼", { maxHealth: 6, moveSpeed: 3, defense: 2 }]
   ],
   unique: [
-    ["lightning-boots", "번개 부츠", { attackSpeed: 5, moveSpeed: 5, maxHealth: -2 }],
-    ["iron-dynasty", "철왕조의 벨트", { maxHealth: 5, power: 4, defense: 2, attackSpeed: -2 }]
+    ["lightning-boots", "번개 부츠", { attackSpeed: 6, moveSpeed: 4, power: 5, maxHealth: -1 }],
+    ["iron-dynasty", "철왕조의 벨트", { maxHealth: 7, power: 6, defense: 3, attackSpeed: -1 }]
   ]
 };
 
@@ -50,6 +50,7 @@ export const LEGACY_REWARDS = Object.freeze(["carbon", "heels", "wraps"]);
 
 export const EQUIPMENT = Object.freeze([
   { id: "carbon", name: "카본 깔창", rarity: "unique", description: "로프 드롭킥 전진 거리 +35%",
+    stats: Object.freeze({ maxHealth: 4, power: 3, attackSpeed: 2 }),
     effects: Object.freeze({ ropeTravelMultiplier: 1.35 }) },
   { id: "heels", name: "하이힐", rarity: "rare", description: "일반 발차기 치명타 확률 +12%p",
     effects: Object.freeze({ kickCriticalBonus: 0.12 }) },

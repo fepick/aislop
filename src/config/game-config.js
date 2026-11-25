@@ -1,6 +1,6 @@
 export const RULES_VERSION = "0.6.0";
 export const EQUIPMENT_RULES_VERSION = "0.7.0";
-export const ARENA_RULES_VERSION = "0.9.0";
+export const ARENA_RULES_VERSION = "0.9.1";
 export const AI_PROFILE_VERSION = "0.2.0";
 export const RESULT_SCHEMA_VERSION = "0.4.0";
 export const STAT_RULES_VERSION = "1.1.0";

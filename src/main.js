@@ -158,8 +158,9 @@ function renderTraining() {
 }
 
 function equipmentDescription(item) {
-  if (item.description) return item.description;
-  return Object.entries(item.stats).map(([key, value]) => `${STAT_LABELS[key]} ${value > 0 ? "+" : "−"}${Math.abs(value)}`).join(" · ");
+  const stats = Object.entries(item.stats ?? {})
+    .map(([key, value]) => `${STAT_LABELS[key]} ${value > 0 ? "+" : "−"}${Math.abs(value)}`);
+  return item.description ? [...stats, item.description].join(" · ") : stats.join(" · ");
 }
 
 function renderLoadout() {

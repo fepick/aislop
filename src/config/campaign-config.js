@@ -30,7 +30,7 @@ export const STAGES = Object.freeze([
     id: "iron-king", venue: "철의 왕좌", name: "IRON KING", title: "현역 챔피언",
     color: "#f5b647", art: "./asset/campaign/iron-king.png",
     intro: "메인 이벤트. 챔피언이 벨트를 로프에 걸고 링 한가운데로 걸어 나온다. 오늘 밤 상금과 왕좌를 모두 가져와라.",
-    scouting: "높은 체력과 강력한 압박이 특징인 헤비급 챔피언.",
-    stats: { attackSpeed: 12, moveSpeed: 8, power: 16, maxHealth: 17, defense: 14, sharpness: 13, insight: 13 }
+    scouting: "체력과 방어가 높고 공격 주기가 짧다. 결승 전에 모은 장비를 비교해 가장 잘 맞는 조합을 고르자.",
+    stats: { attackSpeed: 17, moveSpeed: 8, power: 18, maxHealth: 20, defense: 17, sharpness: 13, insight: 16 }
   }
 ]);
