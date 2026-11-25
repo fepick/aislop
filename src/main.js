@@ -201,6 +201,7 @@ function showCampaign(focus = false) {
   if (run.status === "reward") {
     rewardList.innerHTML = availableRewards(run).map(item => `
       <button class="reward-option" data-reward="${item.id}" data-rarity="${item.rarity}">
+        <img class="reward-icon" src="./asset/equipment/${item.id}.png" width="64" height="64" alt="" draggable="false">
         <span class="rarity">${RARITIES[item.rarity]}</span>
         <strong>${item.name}</strong>
         <small>${equipmentDescription(item)}</small>

@@ -302,22 +302,37 @@ canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; 
 .interlude h2 { margin: 8px 0 13px; font-family: var(--sans); font-weight: 900; font-size: clamp(28px, 5vw, 66px); }
 .interlude p:not(.eyebrow) { color: #e0d9c7; }
 .interlude .primary { margin-top: 22px; }
-.reward-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 20px; }
+.reward-list {
+  width: min(690px, 100%);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 20px auto 0;
+}
 .reward-option {
   --rarity-color: #d4d8c9;
-  flex: 0 1 220px;
-  min-height: 125px;
+  min-width: 0;
+  min-height: 166px;
   display: grid;
-  align-content: center;
+  grid-template-rows: auto auto auto 1fr;
+  justify-items: center;
   gap: 5px;
-  padding: 12px;
+  padding: 12px 8px;
   border: 1px solid #87764b;
+  border-top-color: var(--rarity-color);
   background: #28291e;
   color: var(--ink);
 }
+.reward-icon {
+  display: block;
+  width: 64px;
+  height: 64px;
+  margin-bottom: 3px;
+  image-rendering: pixelated;
+}
 .reward-option:hover { border-color: var(--rarity-color); background: #3a321e; }
 .reward-option strong { font-size: 17px; }
-.reward-option small { color: #dad2bd; }
+.reward-option small { color: #dad2bd; word-break: keep-all; overflow-wrap: anywhere; }
 .reward-option[data-rarity="rare"] { --rarity-color: #99d5ff; }
 .reward-option[data-rarity="epic"] { --rarity-color: #e4b6ff; }
 .reward-option[data-rarity="unique"] { --rarity-color: #ffc34f; }
@@ -370,6 +385,20 @@ progress { width: 100%; height: 7px; accent-color: var(--accent); }
   .opponent-title .eyebrow, .opponent-title p:last-child { font-size: 10px; }
   .prep-grid { grid-template-columns: 1fr; padding: 7px; }
   .interlude { min-height: 320px; }
+  #reward-screen .interlude-content > p { word-break: keep-all; }
+  .reward-list { grid-template-columns: 1fr; gap: 7px; }
+  .reward-option {
+    min-height: 78px;
+    grid-template-columns: 48px minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    align-content: center;
+    justify-items: start;
+    gap: 2px 11px;
+    padding: 8px 10px;
+    text-align: left;
+  }
+  .reward-icon { grid-row: 1 / span 3; align-self: center; width: 48px; height: 48px; margin: 0; }
+  .reward-option strong { font-size: 15px; }
   .result-card .primary { margin-top: 7px; min-height: 32px; padding: 4px 8px; font-size: 11px; }
   .result-card h2 { font-size: 32px; }
   .result-card > p:not(.eyebrow) { font-size: 10px; }

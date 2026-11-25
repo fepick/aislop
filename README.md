@@ -65,6 +65,8 @@ asset/
 ├─ campaign/
 │  ├─ arena-banner.jpg
 │  └─ 상대 일러스트 PNG 4개
+├─ equipment/
+│  └─ 장비 ID별 32×32 투명 도트 PNG 33개
 ├─ favicon.ico
 ├─ player_sprite/
 │  ├─ red_comet_sheet.png
