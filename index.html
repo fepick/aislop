@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#151613">
   <title>IRON RING · 로드 투 더 벨트</title>
   <link rel="icon" href="./asset/favicon.ico">
-  <link rel="stylesheet" href="./style.css?v=iron-ring-1">
+  <link rel="stylesheet" href="./style.css?v=iron-ring-2">
 </head>
 <body>
   <main class="app-shell">
@@ -78,11 +78,13 @@
 
       <section id="battle-screen" class="screen battle-screen" aria-label="레슬링 관전" hidden inert>
         <canvas id="game-canvas" width="1920" height="1080" aria-label="레슬링 경기 화면"></canvas>
+        <span id="arena-announcement" class="sr-only" role="status"></span>
         <div id="battle-overlay" class="result-overlay" hidden>
           <div class="result-card">
             <p id="result-kicker" class="eyebrow"></p>
             <h2 id="result-title"></h2>
             <p id="result-copy"></p>
+            <p id="result-arena" hidden></p>
             <button id="result-action" class="primary" type="button"></button>
           </div>
         </div>
@@ -92,7 +94,7 @@
         <div class="interlude-content">
           <p class="eyebrow">스테이지 승리</p>
           <h2 id="reward-title">라커룸 보상<span>.</span></h2>
-          <p>장비 하나를 선택하세요. 다음 스테이지에서 훈련 포인트 3점을 더 받습니다.</p>
+          <p>장비 3개 중 하나를 선택하세요. 다음 스테이지에서 훈련 포인트 3점을 더 받습니다.</p>
           <div id="reward-list" class="reward-list"></div>
         </div>
       </section>
@@ -143,6 +145,6 @@
       <span id="run-seed"></span>
     </footer>
   </main>
-  <script type="module" src="./src/main.js?v=iron-ring-1"></script>
+  <script type="module" src="./src/main.js?v=iron-ring-2"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 import { PLAYER_CONFIGS } from "./game-config.js";
 
-export const CAMPAIGN_VERSION = 1;
+export const CAMPAIGN_VERSION = 2;
 export const CAMPAIGN_SAVE_KEY = "iron-ring-campaign-v1";
 export const TRAINING_REWARD = 3;
 
@@ -14,41 +14,23 @@ export const STAGES = Object.freeze([
   },
   {
     id: "neon-viper", venue: "네온 아레나", name: "NEON VIPER", title: "네온의 독사",
-    color: "#7ade9c", art: "./asset/campaign/neon-viper.png", customSprite: true,
+    color: "#7ade9c", art: "./asset/campaign/neon-viper.png",
     intro: "언더카드에서 이름을 알린 레드 코멧. 네온 아래에서 관중의 연승 기록을 독차지한 선수가 기다린다.",
     scouting: "속공과 회피에 특화된 선수. 체력과 방어는 낮다.",
     stats: { attackSpeed: 16, moveSpeed: 15, power: 10, maxHealth: 9, defense: 8, sharpness: 12 }
   },
   {
     id: "velvet-phantom", venue: "벨벳 극장", name: "VELVET PHANTOM", title: "반격의 유령",
-    color: "#ce94fc", art: "./asset/campaign/velvet-phantom.png", customSprite: true,
+    color: "#ce94fc", art: "./asset/campaign/velvet-phantom.png",
     intro: "결승 한 자리를 건 준결승. 상대는 관중의 환호가 끊기는 순간마다 반격을 꽂아 넣는다.",
     scouting: "간파와 예리함이 높아 카운터와 치명타가 위협적이다.",
     stats: { attackSpeed: 11, moveSpeed: 10, power: 11, maxHealth: 11, defense: 10, sharpness: 17, insight: 17 }
   },
   {
     id: "iron-king", venue: "철의 왕좌", name: "IRON KING", title: "현역 챔피언",
-    color: "#f5b647", art: "./asset/campaign/iron-king.png", customSprite: true,
+    color: "#f5b647", art: "./asset/campaign/iron-king.png",
     intro: "메인 이벤트. 챔피언이 벨트를 로프에 걸고 링 한가운데로 걸어 나온다. 오늘 밤 상금과 왕좌를 모두 가져와라.",
     scouting: "높은 체력과 강력한 압박이 특징인 헤비급 챔피언.",
     stats: { attackSpeed: 12, moveSpeed: 8, power: 16, maxHealth: 17, defense: 14, sharpness: 13, insight: 13 }
-  }
-]);
-
-export const EQUIPMENT = Object.freeze([
-  {
-    id: "carbon", name: "카본 깔창", rarity: "유니크",
-    description: "로프 드롭킥 전진 거리 +35%",
-    effects: Object.freeze({ ropeTravelMultiplier: 1.35 })
-  },
-  {
-    id: "heels", name: "하이힐", rarity: "레어",
-    description: "일반 발차기 치명타 확률 +12%p",
-    effects: Object.freeze({ kickCriticalBonus: 0.12 })
-  },
-  {
-    id: "wraps", name: "챔피언 랩", rarity: "레어",
-    description: "장착 중 방어 +2, 간파 +2",
-    stats: Object.freeze({ defense: 2, insight: 2 })
   }
 ]);

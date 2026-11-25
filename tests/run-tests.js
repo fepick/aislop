@@ -1,6 +1,8 @@
 import { ACTIONS } from "../src/config/combat-config.js";
 import { AI_PROFILES } from "../src/config/ai-profiles.js";
-import { EQUIPMENT, STAGES, TRAINING_REWARD } from "../src/config/campaign-config.js";
+import { ARENA_EVENTS } from "../src/config/arena-events.js";
+import { STAGES, TRAINING_REWARD } from "../src/config/campaign-config.js";
+import { EQUIPMENT, LEGACY_REWARDS, REWARD_WEIGHTS } from "../src/config/equipment.js";
 import {
   ARENA_RULES_VERSION, DEFAULT_STATS, EQUIPMENT_RULES_VERSION, RULES_VERSION, STAT_BUDGET, TIME_LIMIT_TICKS, WORLD
 } from "../src/config/game-config.js";
@@ -91,30 +93,72 @@ test("campaign series ends at two wins or after three rounds", () => {
   assert.deepEqual(eliminated.rounds, ["P1", "DRAW", "P2"]);
 });
 
-test("unique campaign rewards advance the run through the boss", () => {
+test("campaign offers three distinct rewards per stage without repeating skipped items", () => {
+  assert.equal(EQUIPMENT.length, 33);
+  assert.equal(new Set(EQUIPMENT.map(item => item.id)).size, EQUIPMENT.length);
+  assert.ok(EQUIPMENT.slice(3).every(item => Object.values(item.stats).some(bonus => bonus > 0)));
   let run = createRun(7);
   run = { ...run, allocation: adjustAllocation(run.allocation, "maxHealth", 1) };
   assert.equal(claimReward(run, EQUIPMENT[0].id), run);
-  for (const [index, item] of EQUIPMENT.entries()) {
+  const shown = [];
+  for (let index = 0; index < STAGES.length - 1; index++) {
     const reward = ["P1", "P1"].reduce(recordRound, run);
-    assert.deepEqual(availableRewards(reward).map(candidate => candidate.id), EQUIPMENT.slice(index).map(candidate => candidate.id));
-    run = claimReward(reward, item.id);
+    const picks = availableRewards(reward);
+    const ids = picks.map(item => item.id);
+    assert.equal(ids.length, 3);
+    assert.equal(new Set(ids).size, 3);
+    assert.ok(ids.every(id => !shown.includes(id)));
+    assert.equal(claimReward(reward, EQUIPMENT.find(item => !ids.includes(item.id)).id), reward);
+    assert.deepEqual(availableRewards(restoreRun(JSON.stringify(reward), 99)), picks);
+    shown.push(...ids);
+    const chosen = picks.find(item => item.stats) ?? picks[0];
+    run = claimReward(reward, chosen.id);
+    assert.deepEqual(run.seenRewards, shown);
     assert.equal(run.stage, index + 1);
-    assert.equal(run.equipped, item.id);
+    assert.equal(run.equipped, chosen.id);
     assert.equal(run.allocation.remainingBudget, STAT_BUDGET - 1 + TRAINING_REWARD * run.stage);
     assert.deepEqual(run.rounds, []);
+    for (const [key, bonus] of Object.entries(chosen.stats ?? {})) {
+      assert.equal(effectiveStats(run)[key], run.allocation.currentStats[key] + bonus);
+    }
   }
   assert.equal(roundConfig(run).opponent.name, STAGES.at(-1).name);
-  assert.equal(effectiveStats(run).defense, DEFAULT_STATS.defense + 2);
-  assert.equal(run.allocation.currentStats.defense, DEFAULT_STATS.defense);
   const champion = ["P1", "DRAW", "P1"].reduce(recordRound, run);
   assert.equal(champion.status, "champion");
   assert.deepEqual(restoreRun(JSON.stringify(champion), 99), champion);
 });
 
+test("later reward rounds weight higher rarities more often", () => {
+  assert.ok(REWARD_WEIGHTS.every(weights => Object.values(weights).reduce((sum, weight) => sum + weight, 0) === 100));
+  const upperTiers = [0, 0, 0];
+  for (let seed = 1; seed <= 200; seed++) {
+    let run = createRun(seed);
+    for (let stage = 0; stage < upperTiers.length; stage++) {
+      const reward = ["P1", "P1"].reduce(recordRound, run);
+      const picks = availableRewards(reward);
+      upperTiers[stage] += picks.filter(item => ["epic", "unique"].includes(item.rarity)).length;
+      run = claimReward(reward, picks[0].id);
+    }
+  }
+  assert.ok(upperTiers[0] < upperTiers[1] && upperTiers[1] < upperTiers[2], upperTiers.join(", "));
+});
+
+test("version 1 saves preserve legacy equipment and exclude already shown rewards", () => {
+  const oldSave = {
+    ...createRun(21), version: 1, stage: 1, owned: ["wraps"], equipped: "wraps", rounds: ["P1", "P1"]
+  };
+  delete oldSave.seenRewards;
+  const restored = restoreRun(JSON.stringify(oldSave), 99);
+  assert.equal(restored.stage, 1);
+  assert.equal(restored.equipped, "wraps");
+  assert.equal(restored.status, "reward");
+  assert.deepEqual(restored.seenRewards, LEGACY_REWARDS);
+  assert.ok(availableRewards(restored).every(item => !LEGACY_REWARDS.includes(item.id)));
+});
+
 test("restoring a saved series preserves its next round and validates allocations", () => {
   const first = ["P1", "P1"].reduce(recordRound, createRun(77));
-  const second = claimReward(first, "heels");
+  const second = claimReward(first, availableRewards(first)[0].id);
   second.allocation = adjustAllocation(second.allocation, "power", 1);
   const between = recordRound(second, "DRAW");
   const corrupted = JSON.parse(JSON.stringify(between));
@@ -145,7 +189,7 @@ test("campaign equipment affects its intended action and versions only modified 
   assert.equal(runMatch({ seed: 1 }).rulesVersion, RULES_VERSION);
   assert.equal(runMatch({ seed: 1, p1Equipment: heels.effects }).rulesVersion, EQUIPMENT_RULES_VERSION);
   for (const item of [carbon, heels]) {
-    const run = claimReward(["P1", "P1"].reduce(recordRound, createRun(1)), item.id);
+    const run = { ...createRun(1), owned: [item.id], equipped: item.id };
     const config = roundConfig(run);
     const { mode, ...spectator } = runMatch({ ...config, mode: "spectator" });
     const { mode: simulationMode, ...simulation } = runMatch(config);
@@ -194,9 +238,9 @@ test("arena reacts to strong hits and limits overlapping cheers", () => {
   assert.deepEqual(events.map(event => [event.type, event.tick]), [["CROWD_CHEER", 2], ["CROWD_CHEER", 109]]);
 });
 
-test("spectator and headless share arena events without changing combat RNG", () => {
-  const items = new Set();
-  for (let seed = 1; seed <= 12; seed += 1) {
+test("spectator and headless agree on all six arena events and their combat results", () => {
+  const kinds = new Set();
+  for (let seed = 1; seed <= 24; seed += 1) {
     const config = roundConfig(["P1", "P2"].reduce(recordRound, createRun(seed)));
     const spectator = new Game({ ...config, mode: "spectator", collectEvents: true });
     const headless = new Game({ ...config, collectEvents: true });
@@ -208,15 +252,60 @@ test("spectator and headless share arena events without changing combat RNG", ()
     assert.deepEqual(spectator.events, headless.events);
     assert.ok(spectator.events.some(event => event.type === "RING_CONTRACTION"));
     for (const event of spectator.events) {
-      if (event.type === "CROWD_THROW") items.add(event.item);
+      if (event.type === "ARENA_EVENT") kinds.add(event.kind);
     }
-
-    const early = roundConfig(createRun(seed));
-    const { arena, rulesVersion, ...arenaResult } = runMatch(early);
-    const { rulesVersion: originalRules, ...originalResult } = runMatch({ ...early, arena: undefined });
-    assert.deepEqual(arenaResult, originalResult);
   }
-  assert.deepEqual([...items].sort(), ["chair", "trash"]);
+  assert.deepEqual([...kinds].sort(), Object.keys(ARENA_EVENTS).sort());
+});
+
+test("a telegraphed chair can decide a round without crediting the opponent", () => {
+  const game = new Game({ arena: { id: "blue-bull" } });
+  const [victim, bystander] = game.players;
+  victim.health = 7;
+  game.arena.active = {
+    kind: "chair", impactTick: 20, until: 100, landingX: victim.x, radius: ARENA_EVENTS.chair.radius
+  };
+  game.tick = 19;
+  game.step();
+  assert.equal(victim.health, 7);
+  const events = game.step();
+  assert.ok(events.some(event => event.type === "ARENA_EFFECT" && event.effect === "damage"));
+  const result = game.getResult();
+  assert.equal(result.winner, bystander.id);
+  assert.equal(result.p2.totalDamageDealt, 0);
+  assert.equal(result.arena.effects.P1.damage, 7);
+  assert.equal(result.arena.effects.P2.damage, 0);
+});
+
+test("medic, rage and temporary modifiers respect caps, zones and attack start", () => {
+  const game = new Game({ arena: { id: "blue-bull" }, p1Stats: { maxHealth: 20 } });
+  const { arena, players: [p1, p2] } = game;
+  p1.health = 71;
+  p2.health = 50;
+  arena.healTrailing(25, game.players, 10);
+  assert.equal(p1.health, 81);
+  assert.equal(p2.health, 50);
+  p1.rage = 97;
+  arena.applyEffect(26, "fury", p1, "rage", ARENA_EVENTS.fury.rage);
+  assert.equal(p1.rage, 100);
+  assert.equal(arena.effects.P1.rage, 3);
+
+  arena.active = { kind: "speed", until: 100 };
+  game.startAction(p1, "KICK");
+  const speedTiming = p1.action.timing.total;
+  game.tick = 101;
+  assert.equal(p1.action.timing.total, speedTiming);
+  game.startAction(p2, "KICK");
+  assert.ok(speedTiming < p2.action.timing.total);
+
+  arena.active = { kind: "trash", impactTick: 100, until: 200, landingX: p1.x, radius: ARENA_EVENTS.trash.radius };
+  assert.equal(arena.moveScale(99, p1.x), 1);
+  assert.equal(arena.moveScale(101, p2.x), 1);
+  assert.equal(arena.moveScale(101, p1.x), ARENA_EVENTS.trash.moveScale);
+  assert.equal(arena.moveScale(200, p1.x), 1);
+  arena.active = { kind: "ropes", until: 190 };
+  assert.equal(arena.knockbackScale(189), ARENA_EVENTS.ropes.knockbackScale);
+  assert.equal(arena.knockbackScale(190), 1);
 });
 
 test("stat rules derive documented baseline and investment values", () => {

@@ -26,8 +26,8 @@ import {
 } from "./combat-rules.js";
 
 const cooldownKeys = Object.keys(ACTIONS);
-const scaledTiming = (player, config) => {
-  const scale = player.derivedStats.attackTimingScale;
+const scaledTiming = (player, config, arenaScale = 1) => {
+  const scale = player.derivedStats.attackTimingScale * arenaScale;
   const startup = Math.max(1, Math.round(config.startup * scale));
   const active = Math.max(1, Math.round(config.active * scale));
   const recovery = Math.max(1, Math.round(config.recovery * scale));
@@ -98,7 +98,9 @@ export class Game {
       player.action = { type, elapsed: 0, hasHit: false };
       return;
     }
-    player.action = { type, elapsed: 0, hasHit: false };
+    const arenaScale = this.arena?.attackTimingScale(this.tick);
+    const timing = scaledTiming(player, ACTIONS[type], arenaScale);
+    player.action = { type, elapsed: 0, hasHit: false, timing };
     player.metrics.attacksAttempted += 1;
     player.metrics.actionAttempts[type] += 1;
     if (type === "ROPE_DROP_KICK") {
@@ -116,7 +118,7 @@ export class Game {
 
     if (player.hitStunTicks > 0) {
       player.hitStunTicks -= 1;
-      player.x += player.velocityX;
+      player.x += player.velocityX * (this.arena?.knockbackScale(this.tick) ?? 1);
       player.velocityX *= WORLD.knockbackFriction;
       player.x = clamp(player.x, ring.ringMinX, ring.ringMaxX);
       return;
@@ -125,9 +127,10 @@ export class Game {
     if (player.pendingCounter) return;
     if (!player.action) return;
     const action = player.action;
+    const arenaMove = this.arena?.moveScale(this.tick, player.x) ?? 1;
     if (action.type === "APPROACH") {
       player.facing = opponentX >= player.x ? 1 : -1;
-      player.x += player.facing * WORLD.approachSpeed * player.derivedStats.moveScale * FIXED_DT;
+      player.x += player.facing * WORLD.approachSpeed * player.derivedStats.moveScale * arenaMove * FIXED_DT;
       if (ring !== WORLD) player.x = clamp(player.x, ring.ringMinX, ring.ringMaxX);
       action.elapsed += 1;
       if (Math.abs(opponentX - player.x) <= 220 || action.elapsed >= 30) {
@@ -138,14 +141,14 @@ export class Game {
     }
 
     const config = ACTIONS[action.type];
-    const timing = scaledTiming(player, config);
+    const timing = action.timing ?? scaledTiming(player, config);
     action.elapsed += 1;
     if (action.type === "DROP_KICK" && action.elapsed >= timing.startup && action.elapsed < timing.startup + timing.active) {
-      player.x += player.facing * config.moveSpeed * FIXED_DT;
+      player.x += player.facing * config.moveSpeed * arenaMove * FIXED_DT;
     }
     if (action.type === "ROPE_DROP_KICK" && action.elapsed >= timing.startup && action.elapsed < timing.startup + timing.active) {
       const travelMultiplier = player.equipment.ropeTravelMultiplier ?? 1;
-      player.x += player.facing * config.moveSpeed * player.derivedStats.moveScale * travelMultiplier * FIXED_DT;
+      player.x += player.facing * config.moveSpeed * player.derivedStats.moveScale * travelMultiplier * arenaMove * FIXED_DT;
     }
     player.x = clamp(player.x, ring.ringMinX, ring.ringMaxX);
     if (action.elapsed >= timing.total) {
@@ -190,7 +193,7 @@ export class Game {
     if (this.status !== "RUNNING") return this.recentEvents;
     this.recentEvents = [];
     const [p1, p2] = this.players;
-    this.arena?.advance(this.tick);
+    this.arena?.advance(this.tick, this.players);
     const ring = this.ring;
     if (ring !== WORLD) {
       p1.x = clamp(p1.x, ring.ringMinX, ring.ringMaxX);
@@ -227,7 +230,7 @@ export class Game {
       const action = attacker.action;
       if (!action || action.hasHit || !ACTIONS[action.type]) continue;
       const config = ACTIONS[action.type];
-      const timing = scaledTiming(attacker, config);
+      const timing = action.timing ?? scaledTiming(attacker, config);
       const active = action.elapsed >= timing.startup && action.elapsed < timing.startup + timing.active;
       if (active && canHit(attacker, defender, config)) {
         action.hasHit = true;

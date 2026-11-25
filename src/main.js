@@ -1,8 +1,9 @@
 import {
   CAMPAIGN_SAVE_KEY,
-  EQUIPMENT,
   STAGES
 } from "./config/campaign-config.js";
+import { ARENA_EVENTS } from "./config/arena-events.js";
+import { EQUIPMENT, RARITIES } from "./config/equipment.js";
 import { FIXED_DT, MAX_STEPS_PER_RENDER, UNUSED_STATS } from "./config/game-config.js";
 import {
   availableRewards,
@@ -40,6 +41,7 @@ const resetButton = select("reset-stats-button");
 const statControls = select("stat-controls");
 const loadoutList = select("loadout-list");
 const rewardList = select("reward-list");
+const arenaAnnouncement = select("arena-announcement");
 const resultOverlay = select("battle-overlay");
 const resultAction = select("result-action");
 const battleControls = select("battle-controls");
@@ -142,7 +144,8 @@ function renderTraining() {
   for (const { key, value, decrease, increase } of statRows) {
     const current = allocation.currentStats[key];
     value.textContent = stats[key];
-    value.classList.toggle("boosted", stats[key] !== current);
+    value.classList.toggle("boosted", stats[key] > current);
+    value.classList.toggle("reduced", stats[key] < current);
     decrease.disabled = !allowed || current <= allocation.baseStats[key];
     increase.disabled = !allowed || allocation.remainingBudget === 0;
   }
@@ -154,13 +157,18 @@ function renderTraining() {
     : "시리즈 진행 중에는 훈련과 장비가 고정됩니다.";
 }
 
+function equipmentDescription(item) {
+  if (item.description) return item.description;
+  return Object.entries(item.stats).map(([key, value]) => `${STAT_LABELS[key]} ${value > 0 ? "+" : "−"}${Math.abs(value)}`).join(" · ");
+}
+
 function renderLoadout() {
   select("equipment-count").textContent = `${run.owned.length}/${EQUIPMENT.length} 보유`;
   const equipped = equipmentFor(run);
-  select("equipment-detail").textContent = equipped?.description ?? "";
+  select("equipment-detail").textContent = equipped ? equipmentDescription(equipped) : "";
   const items = EQUIPMENT.filter(item => run.owned.includes(item.id));
   loadoutList.innerHTML = items.length ? items.map(item => `
-    <button class="quiet item-slot" data-equip="${item.id}" aria-pressed="${run.equipped === item.id}"
+    <button class="quiet item-slot" data-equip="${item.id}" title="${RARITIES[item.rarity]} · ${equipmentDescription(item)}" aria-pressed="${run.equipped === item.id}"
       ${run.status === "ready" ? "" : "disabled"}>${item.name}</button>`).join("")
     : '<p class="loadout-empty">첫 스테이지를 이기면 장비를 얻습니다.</p>';
 }
@@ -191,10 +199,10 @@ function showCampaign(focus = false) {
   renderSeed();
   if (run.status === "reward") {
     rewardList.innerHTML = availableRewards(run).map(item => `
-      <button class="reward-option" data-reward="${item.id}">
-        <span class="rarity">${item.rarity}</span>
+      <button class="reward-option" data-reward="${item.id}" data-rarity="${item.rarity}">
+        <span class="rarity">${RARITIES[item.rarity]}</span>
         <strong>${item.name}</strong>
-        <small>${item.description}</small>
+        <small>${equipmentDescription(item)}</small>
       </button>`).join("");
     setView("reward");
     if (focus) rewardList.querySelector("button").focus();
@@ -243,10 +251,6 @@ function playStartBell(currentGame) {
   });
 }
 
-function renderMatch() {
-  renderer.render(game, match.stage.customSprite ? match.stage.id : undefined);
-}
-
 function startMatch(options) {
   match = options;
   game = new Game({ ...match.config, mode: "spectator" });
@@ -256,10 +260,11 @@ function startMatch(options) {
   accumulator = 0;
   previousTimestamp = null;
   resultOverlay.hidden = true;
+  arenaAnnouncement.textContent = "";
   lab.setMatchActive(true, match.exhibition);
   setView("battle");
   updateBattleControls();
-  renderMatch();
+  renderer.render(game);
   pauseButton.focus();
   frameElement.scrollIntoView({ block: "nearest" });
   playStartBell(game);
@@ -281,6 +286,16 @@ function finishRound() {
   select("result-kicker").textContent = match.exhibition ? "실험실 · 단일 경기" : `${match.round}라운드 종료`;
   select("result-title").textContent = result.winner === "DRAW" ? "무승부" : `${winner} 승리`;
   select("result-copy").textContent = `${method} · 남은 체력 ${p1Health} / ${p2Health}`;
+  const arenaResult = select("result-arena");
+  const arena = result.arena;
+  const eventCount = arena ? Object.values(arena.eventCounts).reduce((sum, count) => sum + count, 0) : 0;
+  arenaResult.hidden = eventCount === 0;
+  if (eventCount > 0) {
+    const { P1, P2 } = arena.effects;
+    const healthEffect = (P1.damage || P2.damage || P1.healing || P2.healing)
+      ? ` · 피해 ${P1.damage}/${P2.damage} · 회복 ${P1.healing}/${P2.healing}` : "";
+    arenaResult.textContent = `경기장 이벤트 ${eventCount}회${healthEffect}`;
+  }
 
   if (match.exhibition) {
     lab.finishExhibition(result);
@@ -312,11 +327,16 @@ function renderFrame(timestamp) {
       const events = game.step();
       renderer.consume(events);
       audio.consume(events);
+      const announcement = events.find(event => event.type === "ARENA_EVENT");
+      if (announcement) {
+        const { name, detail } = ARENA_EVENTS[announcement.kind];
+        arenaAnnouncement.textContent = `${name} · ${detail}`;
+      }
       accumulator -= FIXED_DT;
       steps += 1;
     }
     if (steps === stepLimit) accumulator = Math.min(accumulator, FIXED_DT);
-    renderMatch();
+    renderer.render(game);
     if (game.status === "FINISHED") finishRound();
   }
   requestAnimationFrame(renderFrame);
@@ -380,7 +400,7 @@ restartButton.addEventListener("click", () => startMatch(match));
 skipButton.addEventListener("click", () => {
   renderer.reset();
   while (game.status === "RUNNING") game.step();
-  renderMatch();
+  renderer.render(game);
   finishRound();
 });
 exitExhibitionButton.addEventListener("click", () => {

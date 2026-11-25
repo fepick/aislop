@@ -1,4 +1,5 @@
 import { LOGICAL_HEIGHT as HEIGHT, LOGICAL_WIDTH as WIDTH, WORLD } from "../config/game-config.js";
+import { ARENA_EVENTS, THROW_FLIGHT_TICKS } from "../config/arena-events.js";
 
 const THEMES = {
   "blue-bull": {
@@ -215,13 +216,13 @@ function drawRing(ctx, theme, ring) {
 
 function drawProp(ctx, event, now, theme) {
   const age = now - event.tick;
-  const progress = Math.min(age / 54, 1);
+  const progress = Math.min(age / THROW_FLIGHT_TICKS, 1);
   const x = event.side < 0 ? 125 : WIDTH - 125;
   const landingY = WORLD.floorY + 44;
-  const chair = event.item === "chair";
+  const chair = event.kind === "chair";
   ctx.save();
   ctx.translate(x + (event.landingX - x) * progress, 529 + (landingY - 529) * progress - 255 * Math.sin(progress * Math.PI));
-  ctx.globalAlpha = Math.min(1, (180 - age) / 35);
+  ctx.globalAlpha = Math.min(1, (event.until - now) / 30);
   ctx.rotate(event.side * (progress * Math.PI * 3.5 + (1 - progress) * .6));
   if (chair) {
     stroke(ctx, [[-19, 32], [-4, 4], [20, 29]], "#172127", 9);
@@ -236,6 +237,23 @@ function drawProp(ctx, event, now, theme) {
   ctx.restore();
 }
 
+function drawLandingZone(ctx, event, ring, tick) {
+  if (tick >= event.impactTick && event.kind !== "trash") return;
+  const left = Math.max(ring.ringMinX, event.landingX - event.radius);
+  const right = Math.min(ring.ringMaxX, event.landingX + event.radius);
+  if (left >= right) return;
+  const color = ARENA_EVENTS[event.kind].color;
+  const y = WORLD.floorY - 12;
+  ctx.save();
+  ctx.globalAlpha = tick < event.impactTick ? .45 + .16 * Math.sin(tick / 3) : .32;
+  ctx.fillStyle = color;
+  ctx.fillRect(left, y, right - left, 35);
+  ctx.strokeStyle = "#272721";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(left, y, right - left, 35);
+  ctx.restore();
+}
+
 export class ArenaRenderer {
   constructor(ctx) {
     this.ctx = ctx;
@@ -246,13 +264,13 @@ export class ArenaRenderer {
   reset() {
     this.cheerTick = -Infinity;
     this.contractionUntil = -Infinity;
-    this.props = [];
+    this.activeEvent = null;
   }
 
   consume(event) {
     if (event.type === "CROWD_CHEER") this.cheerTick = event.tick;
     if (event.type === "RING_CONTRACTION") this.contractionUntil = event.tick + event.duration;
-    if (event.type === "CROWD_THROW") this.props.push(event);
+    if (event.type === "ARENA_EVENT") this.activeEvent = event;
   }
 
   backdrop(id, theme) {
@@ -272,34 +290,38 @@ export class ArenaRenderer {
     const energy = Math.max(0, 1 - (tick - this.cheerTick) / 100);
     drawCrowd(this.ctx, theme, tick, energy);
     drawRing(this.ctx, theme, ring);
+    const event = this.activeEvent;
+    if (event?.radius && tick < event.until) drawLandingZone(this.ctx, event, ring, tick);
   }
 
   drawProps(id, tick) {
-    this.props = this.props.filter(event => tick - event.tick < 180);
-    for (const item of this.props) drawProp(this.ctx, item, tick, THEMES[id]);
+    const event = this.activeEvent;
+    if (event?.radius && tick < event.until) drawProp(this.ctx, event, tick, THEMES[id]);
   }
 
   drawSignal(tick) {
-    const lastThrow = this.props.at(-1);
+    const event = this.activeEvent;
+    const active = event && tick < event.until ? ARENA_EVENTS[event.kind] : null;
     const contraction = tick <= this.contractionUntil;
-    const toss = lastThrow && tick - lastThrow.tick < 80;
     const cheering = tick - this.cheerTick < 95;
-    if (!contraction && !toss && !cheering) return;
-    const message = contraction ? "▶  링 수축 중  ◀"
-      : toss ? lastThrow.item === "chair" ? "링사이드에 의자가 날아왔다!" : "링사이드에 쓰레기가 날아왔다!"
-        : "관중의 환호!";
+    if (active) this.drawBanner(`${active.name} · ${active.detail}`, active.color);
+    if (contraction) this.drawBanner("▶  링 수축 중  ◀", "#ffdc80", active ? 320 : WIDTH / 2);
+    if (cheering && !contraction && !active) this.drawBanner("관중의 환호!", "#ffdc80");
+  }
+
+  drawBanner(message, color, center = WIDTH / 2) {
     const ctx = this.ctx;
     ctx.save();
     ctx.font = 'bold 29px "Malgun Gothic", sans-serif';
     const width = ctx.measureText(message).width + 68;
-    const x = (WIDTH - width) / 2;
+    const x = center - width / 2;
     ctx.fillStyle = "#12151ce8";
     ctx.fillRect(x, 194, width, 43);
-    ctx.fillStyle = "#ffdc80";
+    ctx.fillStyle = color;
     ctx.fillRect(x, 194, 4, 43);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(message, WIDTH / 2, 215);
+    ctx.fillText(message, center, 215);
     ctx.restore();
   }
 }

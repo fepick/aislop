@@ -4,6 +4,11 @@ export const ASSETS = Object.freeze({
     P1: new URL("../../asset/player_sprite/red_comet_sheet.png", import.meta.url).href,
     P2: new URL("../../asset/player_sprite/blue_bull_sheet.png", import.meta.url).href
   }),
+  opponentSheets: Object.freeze({
+    "neon-viper": new URL("../../asset/player_sprite/neon_viper_sheet.png", import.meta.url).href,
+    "velvet-phantom": new URL("../../asset/player_sprite/velvet_phantom_sheet.png", import.meta.url).href,
+    "iron-king": new URL("../../asset/player_sprite/iron_king_sheet.png", import.meta.url).href
+  }),
   sounds: Object.freeze({
     attack: new URL("../../asset/sound/ring-swing.wav", import.meta.url).href,
     hit: new URL("../../asset/sound/ring-impact.wav", import.meta.url).href,
